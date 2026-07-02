@@ -4,10 +4,10 @@ extends Node3D
 # progress saves on-device, pinch/wheel zoom, drag pan, day/night cycle.
 
 const CROPS := [
-	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25 },
+	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25, "model": "res://assets/tomato.glb", "h": 1.7 },
 	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55 },
 	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95 },
-	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150 },
+	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb", "h": 1.9 },
 	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260 },
 ]
 const SAVE_PATH := "user://farm.json"
@@ -84,6 +84,27 @@ func _sphere(r: float, pos: Vector3, color: Color, parent: Node3D = self) -> Mes
 	mi.position = pos
 	parent.add_child(mi)
 	return mi
+
+# ---------- model loader (Meshy GLBs, auto-scaled to a target height) ----------
+func _model(path: String, target_h: float) -> Node3D:
+	var scene: PackedScene = load(path)
+	if not scene:
+		return null
+	var n: Node3D = scene.instantiate()
+	var aabb := AABB()
+	var found := false
+	for child in n.find_children("*", "MeshInstance3D", true):
+		var b: AABB = child.get_aabb()
+		if not found:
+			aabb = b
+			found = true
+		else:
+			aabb = aabb.merge(b)
+	if found and aabb.size.y > 0.01:
+		var f := target_h / aabb.size.y
+		n.scale = Vector3(f, f, f)
+		n.position.y = -aabb.position.y * f
+	return n
 
 # ---------- world ----------
 func _build_world() -> void:
@@ -293,12 +314,20 @@ func _spawn_crop(i: int, crop_idx: int, planted: float) -> void:
 	var holder := Node3D.new()
 	holder.position = p.body.position
 	add_child(holder)
-	var stem := _cyl(0.09, 0.13, 1.0, Vector3(0, 0.5, 0), Color(0.3, 0.5, 0.2), holder)
+	var stem: Node3D = null
 	var fruits: Array = []
-	for off in [Vector3(0.35, 0.95, 0.1), Vector3(-0.3, 0.8, 0.2), Vector3(0.05, 1.1, -0.3)]:
-		var fr := _sphere(0.28, off, crop.color, holder)
-		fr.scale = Vector3.ZERO
-		fruits.append(fr)
+	if crop.has("model"):
+		var m := _model(crop.model, crop.h)
+		if m:
+			holder.add_child(m)
+			holder.scale = Vector3(0.1, 0.1, 0.1)
+			p.is_model = true
+	if not p.get("is_model"):
+		stem = _cyl(0.09, 0.13, 1.0, Vector3(0, 0.5, 0), Color(0.3, 0.5, 0.2), holder)
+		for off in [Vector3(0.35, 0.95, 0.1), Vector3(-0.3, 0.8, 0.2), Vector3(0.05, 1.1, -0.3)]:
+			var fr := _sphere(0.28, off, crop.color, holder)
+			fr.scale = Vector3.ZERO
+			fruits.append(fr)
 	p.crop = crop_idx
 	p.node = holder
 	p.stem = stem
@@ -335,6 +364,7 @@ func _harvest(i: int) -> void:
 	p.fruits = []
 	p.crop = -1
 	p.planted = 0.0
+	p.is_model = false
 	_save()
 
 func _growth(p: Dictionary) -> float:
@@ -453,10 +483,11 @@ func _tap(screen_pos: Vector2) -> void:
 func _build_chicken() -> void:
 	chicken = Node3D.new()
 	add_child(chicken)
-	_box(Vector3(0.55, 0.45, 0.75), Vector3(0, 0.42, 0), Color(0.95, 0.93, 0.88), chicken)
-	_box(Vector3(0.3, 0.3, 0.3), Vector3(0, 0.75, 0.42), Color(0.95, 0.93, 0.88), chicken)
-	_box(Vector3(0.1, 0.14, 0.18), Vector3(0, 0.88, 0.42), Color(0.85, 0.2, 0.15), chicken)
-	_box(Vector3(0.08, 0.08, 0.16), Vector3(0, 0.72, 0.6), Color(0.95, 0.65, 0.2), chicken)
+	var m := _model("res://assets/chicken.glb", 1.15)
+	if m:
+		chicken.add_child(m)
+	else:
+		_box(Vector3(0.55, 0.45, 0.75), Vector3(0, 0.42, 0), Color(0.95, 0.93, 0.88), chicken)
 	chicken.position = Vector3(7, 0, 7)
 	chick_target = chicken.position
 
@@ -496,13 +527,11 @@ func _chicken_process(delta: float) -> void:
 func _build_goat() -> void:
 	goat = Node3D.new()
 	add_child(goat)
-	_box(Vector3(0.7, 0.6, 1.1), Vector3(0, 0.65, 0), Color(0.82, 0.8, 0.75), goat)
-	_box(Vector3(0.4, 0.4, 0.45), Vector3(0, 1.05, 0.6), Color(0.82, 0.8, 0.75), goat)
-	_box(Vector3(0.08, 0.25, 0.08), Vector3(-0.14, 1.35, 0.55), Color(0.4, 0.35, 0.3), goat)
-	_box(Vector3(0.08, 0.25, 0.08), Vector3(0.14, 1.35, 0.55), Color(0.4, 0.35, 0.3), goat)
-	for lx in [-0.22, 0.22]:
-		for lz in [-0.4, 0.4]:
-			_box(Vector3(0.12, 0.5, 0.12), Vector3(lx, 0.25, lz), Color(0.7, 0.68, 0.62), goat)
+	var m := _model("res://assets/goat.glb", 1.5)
+	if m:
+		goat.add_child(m)
+	else:
+		_box(Vector3(0.7, 0.6, 1.1), Vector3(0, 0.65, 0), Color(0.82, 0.8, 0.75), goat)
 	goat.position = Vector3(-7, 0, 5)
 	goat_target = goat.position
 
@@ -536,15 +565,22 @@ func _process(delta: float) -> void:
 	for p in plots:
 		if p.crop >= 0 and p.node:
 			var k := _growth(p)
-			p.stem.scale = Vector3(1, 0.15 + 0.85 * k, 1)
-			p.stem.position.y = 0.5 * p.stem.scale.y
-			var fk: float = clamp((k - 0.7) / 0.3, 0.0, 1.0)
-			for fr in p.fruits:
-				fr.scale = Vector3(fk, fk, fk)
+			if p.get("is_model"):
+				var ms: float = 0.12 + 0.88 * k
+				p.node.scale = Vector3(ms, ms, ms)
+			else:
+				p.stem.scale = Vector3(1, 0.15 + 0.85 * k, 1)
+				p.stem.position.y = 0.5 * p.stem.scale.y
+				var fk: float = clamp((k - 0.7) / 0.3, 0.0, 1.0)
+				for fr in p.fruits:
+					fr.scale = Vector3(fk, fk, fk)
 			if k >= 1.0:
 				var bob := 1.0 + sin(Time.get_ticks_msec() / 200.0) * 0.08
-				for fr in p.fruits:
-					fr.scale = Vector3(bob, bob, bob)
+				if p.get("is_model"):
+					p.node.scale = Vector3(bob, bob, bob)
+				else:
+					for fr in p.fruits:
+						fr.scale = Vector3(bob, bob, bob)
 				if not p.get("mark"):
 					var l := Label3D.new()
 					l.text = "!"
