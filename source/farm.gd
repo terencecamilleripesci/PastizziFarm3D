@@ -25,6 +25,7 @@ var goat_target := Vector3.ZERO
 var milk_timer := 0.0
 var milks: Array = []
 var ext := 0                          # extra land bought (0..3)
+var clouds: Array = []
 var plots: Array = []                 # { body, crop(int idx|-1), node, stem, fruits, planted(unix) }
 var cam: Camera3D
 var sun: DirectionalLight3D
@@ -107,6 +108,14 @@ func _build_world() -> void:
 	# prickly pears
 	for i in range(3):
 		_box(Vector3(0.8, 1.1, 0.4), Vector3(5.0 + i * 2.2, 0.55, -11.8), Color(0.35, 0.55, 0.25))
+	# drifting clouds
+	for i in range(3):
+		var cl := Node3D.new()
+		add_child(cl)
+		_sphere(1.4, Vector3(0, 0, 0), Color(1, 1, 1, 1), cl).scale = Vector3(1.6, 0.55, 1)
+		_sphere(1.0, Vector3(1.4, 0.15, 0.2), Color(1, 1, 1, 1), cl).scale = Vector3(1.3, 0.5, 1)
+		cl.position = Vector3(randf_range(-16, 16), 9.0 + i * 1.2, -6 - i * 4)
+		clouds.append(cl)
 
 const EXT_COSTS := [150, 300, 600]
 func _build_plots() -> void:
@@ -204,6 +213,31 @@ func _pick_seed(i: int) -> void:
 func _update_coins() -> void:
 	coins_label.text = "🪙 %d" % coins
 
+# ---------- juice: bursts + floating text ----------
+func _burst(pos: Vector3, color: Color, n: int = 6) -> void:
+	for i in range(n):
+		var m := _sphere(0.11, pos + Vector3(0, 0.4, 0), color)
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(m, "position", pos + Vector3(randf_range(-1.1, 1.1), randf_range(0.9, 1.8), randf_range(-1.1, 1.1)), 0.55)
+		tw.tween_property(m, "scale", Vector3.ZERO, 0.55)
+		tw.chain().tween_callback(m.queue_free)
+
+func _float_text(pos: Vector3, txt: String, col: Color) -> void:
+	var l := Label3D.new()
+	l.text = txt
+	l.font_size = 72
+	l.modulate = col
+	l.outline_size = 14
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.position = pos + Vector3(0, 1.4, 0)
+	add_child(l)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(l, "position", l.position + Vector3(0, 1.3, 0), 0.9)
+	tw.tween_property(l, "modulate:a", 0.0, 0.9)
+	tw.chain().tween_callback(l.queue_free)
+
 # ---------- save / load (survives closing the game) ----------
 func _save() -> void:
 	var d := { "coins": coins, "ext": ext, "plots": [] }
@@ -229,8 +263,9 @@ func _load() -> void:
 	var saved: Array = d.get("plots", [])
 	for i in range(min(saved.size(), plots.size())):
 		var s: Dictionary = saved[i]
-		if int(s.get("crop", -1)) >= 0:
-			_spawn_crop(i, int(s.crop), float(s.planted))
+		var ci := int(s.get("crop", -1))
+		if ci >= 0 and ci < CROPS.size():
+			_spawn_crop(i, ci, float(s.planted))
 	_update_coins()
 
 # ---------- crops ----------
@@ -259,6 +294,8 @@ func _plant(i: int) -> void:
 		return
 	coins -= crop.seed
 	_update_coins()
+	_burst(plots[i].body.position, Color(0.5, 0.35, 0.2), 5)
+	_float_text(plots[i].body.position, "-%d" % crop.seed, Color(1, 0.85, 0.4))
 	_spawn_crop(i, sel_crop, Time.get_unix_time_from_system())
 	hint_label.text = "%s planted — ready in %s min!" % [crop.name, str(crop.mins)]
 	_save()
@@ -268,6 +305,11 @@ func _harvest(i: int) -> void:
 	var crop: Dictionary = CROPS[p.crop]
 	coins += crop.pay
 	_update_coins()
+	_burst(p.body.position, crop.color, 8)
+	_float_text(p.body.position, "+%d 🪙" % crop.pay, Color(1, 0.9, 0.35))
+	if p.get("mark") and is_instance_valid(p.mark):
+		p.mark.queue_free()
+	p.mark = null
 	hint_label.text = "Harvested %s — +%d coins!" % [crop.name, crop.pay]
 	p.node.queue_free()
 	p.node = null
@@ -345,6 +387,8 @@ func _tap(screen_pos: Vector2) -> void:
 	if hit.collider.has_meta("milk"):
 		coins += 15
 		_update_coins()
+		_burst(hit.collider.position, Color(0.92, 0.94, 0.97), 5)
+		_float_text(hit.collider.position, "+15 🪙", Color(1, 0.9, 0.35))
 		milks.erase(hit.collider)
 		hit.collider.queue_free()
 		hint_label.text = "🥛 +15 coins!"
@@ -353,6 +397,8 @@ func _tap(screen_pos: Vector2) -> void:
 	if hit.collider.has_meta("egg"):
 		coins += 8
 		_update_coins()
+		_burst(hit.collider.position, Color(0.98, 0.95, 0.85), 5)
+		_float_text(hit.collider.position, "+8 🪙", Color(1, 0.9, 0.35))
 		eggs.erase(hit.collider)
 		hit.collider.queue_free()
 		hint_label.text = "🥚 +8 coins!"
@@ -402,6 +448,7 @@ func _chicken_process(delta: float) -> void:
 	else:
 		var dir := (chick_target - chicken.position).normalized()
 		chicken.position += dir * delta * 1.1
+		chicken.position.y = abs(sin(Time.get_ticks_msec() / 90.0)) * 0.09
 		chicken.look_at(chicken.position + dir)
 	egg_timer += delta
 	if egg_timer >= 45.0 and eggs.size() < 3:
@@ -439,6 +486,7 @@ func _goat_process(delta: float) -> void:
 	else:
 		var dir := (goat_target - goat.position).normalized()
 		goat.position += dir * delta * 0.8
+		goat.position.y = abs(sin(Time.get_ticks_msec() / 130.0)) * 0.06
 		goat.look_at(goat.position + dir)
 	milk_timer += delta
 	if milk_timer >= 75.0 and milks.size() < 2:
@@ -470,8 +518,24 @@ func _process(delta: float) -> void:
 				var bob := 1.0 + sin(Time.get_ticks_msec() / 200.0) * 0.08
 				for fr in p.fruits:
 					fr.scale = Vector3(bob, bob, bob)
+				if not p.get("mark"):
+					var l := Label3D.new()
+					l.text = "!"
+					l.font_size = 120
+					l.modulate = Color(1, 0.85, 0.25)
+					l.outline_size = 20
+					l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+					l.position = p.body.position + Vector3(0, 2.2, 0)
+					add_child(l)
+					p.mark = l
+				elif is_instance_valid(p.mark):
+					p.mark.position.y = p.body.position.y + 2.2 + sin(Time.get_ticks_msec() / 250.0) * 0.15
 	_chicken_process(delta)
 	_goat_process(delta)
+	for cl in clouds:
+		cl.position.x += delta * 0.45
+		if cl.position.x > 22:
+			cl.position.x = -22
 	# gentle day/night cycle
 	day_t += delta
 	var a := day_t * TAU / DAY_SECONDS
