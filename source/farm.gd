@@ -24,7 +24,10 @@ var goat: Node3D
 var goat_target := Vector3.ZERO
 var milk_timer := 0.0
 var milks: Array = []
-var ext := 0                          # extra land bought (0..3)
+var owned := 1                        # plots owned — start with ONE, buy the rest
+var tool := "seed"                    # seed | water | shovel
+var tool_btns: Array = []
+var seed_bar: HBoxContainer
 var house_lvl := 1                    # farmhouse tier (1..3) — boosts sell prices
 var zone2 := false                    # the orchard beyond the east wall
 var zone2_node: Node3D
@@ -32,6 +35,7 @@ var gate_node: Node3D
 var up_btn: Button
 var cam_max_x := 20.0
 var clouds: Array = []
+var luzzu: Node3D
 var donkey: Node3D
 var donkey_target := Vector3.ZERO
 var dog: Node3D
@@ -153,17 +157,30 @@ func _build_world() -> void:
 			var f := 3.4 / aabb.size.y
 			house.scale = Vector3(f, f, f)
 			house.position.y = -aabb.position.y * f
-	# stone well
-	_cyl(1.0, 1.0, 0.9, Vector3(9.5, 0.45, -9.5), Color(0.78, 0.68, 0.5))
-	_cyl(0.0, 1.2, 0.8, Vector3(9.5, 1.9, -9.5), Color(0.6, 0.34, 0.2))
-	# olive trees
+	# stone well (real model)
+	var well := _model("res://assets/well.glb", 2.2)
+	if well:
+		add_child(well)
+		well.position += Vector3(9.5, 0, -9.5)
+	# olive trees (real models)
 	for p in [Vector3(-10, 0, 8.5), Vector3(10.5, 0, 8.5), Vector3(-10.5, 0, 0)]:
-		_cyl(0.22, 0.3, 1.6, p + Vector3(0, 0.8, 0), Color(0.45, 0.32, 0.2))
-		_sphere(1.15, p + Vector3(0, 2.1, 0), Color(0.38, 0.5, 0.28))
-		_sphere(0.8, p + Vector3(0.7, 1.7, 0.3), Color(0.42, 0.56, 0.3))
-	# prickly pears
+		var ol := _model("res://assets/olive.glb", 3.1)
+		if ol:
+			add_child(ol)
+			ol.position += p
+			ol.rotation_degrees.y = randf_range(0, 360)
+	# prickly pears (real models)
 	for i in range(3):
-		_box(Vector3(0.8, 1.1, 0.4), Vector3(5.0 + i * 2.2, 0.55, -11.8), Color(0.35, 0.55, 0.25))
+		var pp := _model("res://assets/prickly.glb", 1.3)
+		if pp:
+			add_child(pp)
+			pp.position += Vector3(5.0 + i * 2.4, 0, -11.6)
+			pp.rotation_degrees.y = randf_range(0, 360)
+	# the luzzu bobbing on the sea
+	luzzu = _model("res://assets/luzzu.glb", 2.4)
+	if luzzu:
+		add_child(luzzu)
+		luzzu.position += Vector3(-4, -0.25, -19)
 	# sandy paths between the plot rows
 	for z in [-2.1, 2.1]:
 		_box(Vector3(12.6, 0.06, 1.0), Vector3(0, 0.01, z), Color(0.8, 0.7, 0.5))
@@ -192,40 +209,64 @@ func _build_world() -> void:
 		cl.position = Vector3(randf_range(-16, 16), 9.0 + i * 1.2, -6 - i * 4)
 		clouds.append(cl)
 
-const EXT_COSTS := [150, 300, 600]
+const PLOT_COSTS := [0, 25, 50, 90, 140, 200, 280, 380, 500, 650, 800, 1000]
 func _build_plots() -> void:
-	for r in range(4):                                             # row 4 = buyable land
+	for r in range(4):
 		for c in range(3):
 			var pos := Vector3((c - 1) * 4.2, 0.05, (r - 1) * 4.2)
-			var locked := r == 3
-			var soil := _box(Vector3(3.4, 0.3, 3.4), pos, Color(0.55, 0.5, 0.42))
-			if not locked:
-				soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
-			var bc := Color(0.78, 0.68, 0.5)
-			_box(Vector3(3.8, 0.22, 0.2), pos + Vector3(0, 0.06, -1.8), bc)
-			_box(Vector3(3.8, 0.22, 0.2), pos + Vector3(0, 0.06, 1.8), bc)
-			_box(Vector3(0.2, 0.22, 3.8), pos + Vector3(-1.8, 0.06, 0), bc)
-			_box(Vector3(0.2, 0.22, 3.8), pos + Vector3(1.8, 0.06, 0), bc)
-			if not locked:
-				for k in range(3):                                 # tilled ridges
-					_box(Vector3(3.0, 0.1, 0.35), pos + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
+			var wood := Color(0.52, 0.36, 0.2)
+			# raised bed: wooden frame, corner posts, domed textured soil
+			_box(Vector3(3.9, 0.5, 0.28), pos + Vector3(0, 0.12, -1.84), wood)
+			_box(Vector3(3.9, 0.5, 0.28), pos + Vector3(0, 0.12, 1.84), wood)
+			_box(Vector3(0.28, 0.5, 3.9), pos + Vector3(-1.84, 0.12, 0), wood)
+			_box(Vector3(0.28, 0.5, 3.9), pos + Vector3(1.84, 0.12, 0), wood)
+			for cx in [-1.84, 1.84]:
+				for cz in [-1.84, 1.84]:
+					_cyl(0.16, 0.16, 0.7, pos + Vector3(cx, 0.3, cz), Color(0.45, 0.3, 0.16))
+			var soil := _box(Vector3(3.3, 0.42, 3.3), pos + Vector3(0, 0.1, 0), Color(0.6, 0.55, 0.48))
 			var body := StaticBody3D.new()
 			var shape := CollisionShape3D.new()
 			var bs := BoxShape3D.new()
-			bs.size = Vector3(3.4, 1.6, 3.4)
+			bs.size = Vector3(3.9, 1.8, 3.9)
 			shape.shape = bs
 			body.add_child(shape)
 			body.position = pos
 			add_child(body)
 			body.set_meta("plot", plots.size())
-			plots.append({ "body": body, "soil": soil, "locked": locked, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+			var lbl := Label3D.new()
+			lbl.font_size = 52
+			lbl.outline_size = 12
+			lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			lbl.position = pos + Vector3(0, 1.5, 0)
+			add_child(lbl)
+			plots.append({ "body": body, "soil": soil, "lbl": lbl, "locked": true, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+	_apply_owned()
 
-func _unlock_plot(i: int) -> void:
-	var p: Dictionary = plots[i]
-	p.locked = false
-	p.soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
-	for k in range(3):
-		_box(Vector3(3.0, 0.1, 0.35), p.body.position + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
+func _apply_owned() -> void:
+	for i in range(min(owned, 12)):
+		var p: Dictionary = plots[i]
+		if p.locked:
+			p.locked = false
+			p.soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
+	_refresh_plot_labels()
+
+func _refresh_plot_labels() -> void:
+	for i in range(plots.size()):
+		var p: Dictionary = plots[i]
+		if p.get("zone2"):
+			if is_instance_valid(p.get("lbl")) and p.lbl:
+				p.lbl.text = ""
+			continue
+		if not is_instance_valid(p.get("lbl")):
+			continue
+		if p.locked:
+			p.lbl.text = "🪙%d" % PLOT_COSTS[i] if i == owned else "🔒"
+			p.lbl.modulate = Color(1, 0.85, 0.35) if i == owned else Color(1, 1, 1, 0.55)
+		elif p.crop < 0:
+			p.lbl.text = "+"
+			p.lbl.modulate = Color(0.75, 1, 0.6, 0.9)
+		else:
+			p.lbl.text = ""
 
 func _build_zone2() -> void:
 	zone2_node = Node3D.new()
@@ -255,7 +296,12 @@ func _build_zone2() -> void:
 			body.position = pos
 			zone2_node.add_child(body)
 			body.set_meta("plot", plots.size())
-			plots.append({ "body": body, "soil": soil, "locked": true, "zone2": true, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+			plots.append({ "body": body, "soil": soil, "lbl": null, "locked": true, "zone2": true, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+	var wm := _model("res://assets/windmill.glb", 5.0)
+	if wm:
+		zone2_node.add_child(wm)
+		wm.position += Vector3(24, 0, -9)
+		wm.rotation_degrees.y = -110
 	zone2_node.visible = false
 	# the wooden gate in the east wall (tap to buy the orchard)
 	gate_node = Node3D.new()
@@ -313,7 +359,7 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	add_child(ui)
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm 3D  v0.9.2"
+	title.text = "🥟 Pastizzi Farm 3D  v1.0"
 	title.position = Vector2(20, 18)
 	title.add_theme_font_size_override("font_size", 30)
 	ui.add_child(title)
@@ -326,7 +372,24 @@ func _build_ui() -> void:
 	hint_label.position = Vector2(20, 100)
 	hint_label.add_theme_font_size_override("font_size", 15)
 	ui.add_child(hint_label)
+	var tbar := HBoxContainer.new()
+	tbar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	tbar.offset_top = -152
+	tbar.offset_bottom = -104
+	tbar.offset_left = 12
+	tbar.offset_right = -12
+	tbar.add_theme_constant_override("separation", 8)
+	ui.add_child(tbar)
+	for t in [["seed", "🌱 Seeds"], ["water", "🚿 Water 🪙5"], ["shovel", "🧹 Shovel"]]:
+		var tb := Button.new()
+		tb.text = t[1]
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.add_theme_font_size_override("font_size", 15)
+		tb.pressed.connect(_pick_tool.bind(t[0]))
+		tbar.add_child(tb)
+		tool_btns.append([t[0], tb])
 	var bar := HBoxContainer.new()
+	seed_bar = bar
 	bar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	bar.offset_top = -92
 	bar.offset_bottom = -16
@@ -354,11 +417,20 @@ func _build_ui() -> void:
 	ui.add_child(up_btn)
 	_refresh_up_btn()
 	_pick_seed(0)
+	_pick_tool("seed")
 	_build_chicken()
 	_build_goat()
 	_build_donkey()
 	_build_dog()
 	_update_coins()
+
+func _pick_tool(t: String) -> void:
+	tool = t
+	for pairb in tool_btns:
+		pairb[1].modulate = Color(1, 0.85, 0.4) if pairb[0] == t else Color(1, 1, 1)
+	if seed_bar:
+		seed_bar.visible = (t == "seed")
+	hint_label.text = { "seed": "Pick a seed, tap a plot!", "water": "Tap a growing crop — 🪙5 cuts 25%% of the wait", "shovel": "Tap a crop to dig it out" }[t]
 
 func _pick_seed(i: int) -> void:
 	sel_crop = i
@@ -402,7 +474,7 @@ func _float_text(pos: Vector3, txt: String, col: Color) -> void:
 
 # ---------- save / load (survives closing the game) ----------
 func _save() -> void:
-	var d := { "coins": coins, "ext": ext, "hl": house_lvl, "z2": zone2, "plots": [] }
+	var d := { "coins": coins, "owned": owned, "hl": house_lvl, "z2": zone2, "plots": [] }
 	for p in plots:
 		d.plots.append({ "crop": p.crop, "planted": p.planted })
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -419,9 +491,9 @@ func _load() -> void:
 	if d == null:
 		return
 	coins = int(d.get("coins", 0))
-	ext = int(d.get("ext", 0))
-	for e in range(ext):
-		_unlock_plot(9 + e)
+	owned = int(d.get("owned", 9 + int(d.get("ext", 0)) if d.has("ext") else 1))
+	owned = clamp(owned, 1, 12)
+	_apply_owned()
 	house_lvl = int(d.get("hl", 1))
 	_house_extras()
 	_refresh_up_btn()
@@ -473,6 +545,7 @@ func _plant(i: int) -> void:
 	_float_text(plots[i].body.position, "-%d" % crop.seed, Color(1, 0.85, 0.4))
 	_spawn_crop(i, sel_crop, Time.get_unix_time_from_system())
 	hint_label.text = "%s planted — ready in %s min!" % [crop.name, str(crop.mins)]
+	_refresh_plot_labels()
 	_save()
 
 func _harvest(i: int) -> void:
@@ -494,6 +567,7 @@ func _harvest(i: int) -> void:
 	p.crop = -1
 	p.planted = 0.0
 	p.is_model = false
+	_refresh_plot_labels()
 	_save()
 
 func _growth(p: Dictionary) -> float:
@@ -597,28 +671,59 @@ func _tap(screen_pos: Vector2) -> void:
 		return
 	var i: int = hit.collider.get_meta("plot")
 	var p: Dictionary = plots[i]
-	if p.locked:
-		if i - 9 != ext:
-			hint_label.text = "Buy the land plots in order — next one costs 🪙%d" % EXT_COSTS[ext]
+	if p.locked and not p.get("zone2"):
+		if i != owned:
+			hint_label.text = "Buy plots in order — next costs 🪙%d" % PLOT_COSTS[min(owned, 11)]
 			return
-		var cost: int = EXT_COSTS[ext]
+		var cost: int = PLOT_COSTS[i]
 		if coins < cost:
-			hint_label.text = "That land costs 🪙%d — keep farming!" % cost
+			hint_label.text = "This plot costs 🪙%d — keep farming!" % cost
 			return
 		coins -= cost
-		ext += 1
-		_unlock_plot(i)
+		owned += 1
+		_apply_owned()
 		_update_coins()
-		hint_label.text = "🌾 New land! The għalqa grows."
+		_burst(p.body.position, Color(0.6, 0.42, 0.24), 7)
+		hint_label.text = "🌾 New plot! Your għalqa grows."
 		_save()
 		return
+	if p.locked:
+		return
 	if p.crop < 0:
-		_plant(i)
+		if tool == "seed":
+			_plant(i)
+		else:
+			hint_label.text = "Empty plot — switch to 🌱 Seeds to plant!"
 	elif _growth(p) >= 1.0:
 		_harvest(i)
+	elif tool == "water":
+		if coins < 5:
+			hint_label.text = "Watering costs 🪙5"
+			return
+		coins -= 5
+		_update_coins()
+		var left: float = CROPS[p.crop].mins * 60.0 - (Time.get_unix_time_from_system() - p.planted)
+		p.planted -= left * 0.25
+		_burst(p.body.position, Color(0.4, 0.7, 1.0), 6)
+		_float_text(p.body.position, "🚿 -25%", Color(0.55, 0.8, 1))
+		hint_label.text = "Watered — grows 25%% faster!"
+		_save()
+	elif tool == "shovel":
+		p.node.queue_free()
+		p.node = null
+		p.crop = -1
+		p.is_model = false
+		p.planted = 0.0
+		if p.get("mark") and is_instance_valid(p.mark):
+			p.mark.queue_free()
+		p.mark = null
+		_burst(p.body.position, Color(0.5, 0.35, 0.2), 5)
+		hint_label.text = "Plot cleared."
+		_refresh_plot_labels()
+		_save()
 	else:
 		var left: float = CROPS[p.crop].mins * 60.0 - (Time.get_unix_time_from_system() - p.planted)
-		hint_label.text = "%s still growing — %d s left" % [CROPS[p.crop].name, int(max(0, left))]
+		hint_label.text = "%s still growing — %d s left (🚿 water to speed up!)" % [CROPS[p.crop].name, int(max(0, left))]
 
 # ---------- it-tiġieġa: wandering chicken that lays eggs ----------
 const HOUSE_COSTS := [0, 400, 900]
@@ -824,6 +929,12 @@ func _process(delta: float) -> void:
 		cl.position.x += delta * 0.45
 		if cl.position.x > 22:
 			cl.position.x = -22
+	if luzzu:
+		luzzu.position.x += delta * 0.25
+		if luzzu.position.x > 16:
+			luzzu.position.x = -16
+		luzzu.rotation.z = sin(Time.get_ticks_msec() / 700.0) * 0.05
+		luzzu.rotation.x = sin(Time.get_ticks_msec() / 900.0) * 0.04
 	# gentle day/night cycle
 	day_t += delta
 	var a := day_t * TAU / DAY_SECONDS
