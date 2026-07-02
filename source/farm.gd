@@ -4,11 +4,11 @@ extends Node3D
 # progress saves on-device, pinch/wheel zoom, drag pan, day/night cycle.
 
 const CROPS := [
-	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25, "model": "res://assets/tomato.glb", "h": 1.7 },
-	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55, "model": "res://assets/strawberry.glb", "h": 1.4 },
-	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95, "model": "res://assets/orange.glb", "h": 2.6 },
-	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb", "h": 1.9 },
-	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb", "h": 2.5 },
+	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25, "model": "res://assets/tomato.glb", "h": 1.7, "per": 9 },
+	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55, "model": "res://assets/strawberry.glb", "h": 1.4, "per": 9 },
+	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95, "model": "res://assets/orange.glb", "h": 2.6, "per": 1, "tree": true },
+	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb", "h": 1.9, "per": 3 },
+	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb", "h": 2.5, "per": 1, "tree": true },
 ]
 const SAVE_PATH := "user://farm.json"
 const DAY_SECONDS := 180.0            # full day/night loop = 3 minutes
@@ -359,7 +359,7 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	add_child(ui)
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm 3D  v1.0"
+	title.text = "🥟 Pastizzi Farm 3D  v1.0.1"
 	title.position = Vector2(20, 18)
 	title.add_theme_font_size_override("font_size", 30)
 	ui.add_child(title)
@@ -476,7 +476,7 @@ func _float_text(pos: Vector3, txt: String, col: Color) -> void:
 func _save() -> void:
 	var d := { "coins": coins, "owned": owned, "hl": house_lvl, "z2": zone2, "plots": [] }
 	for p in plots:
-		d.plots.append({ "crop": p.crop, "planted": p.planted })
+		d.plots.append({ "crop": p.crop, "planted": p.planted, "rg": p.get("regrow", false) })
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(d))
@@ -505,32 +505,53 @@ func _load() -> void:
 		var ci := int(s.get("crop", -1))
 		if ci >= 0 and ci < CROPS.size():
 			_spawn_crop(i, ci, float(s.planted))
+			plots[i].regrow = s.get("rg", false)
 	_update_coins()
 
 # ---------- crops ----------
+func _grid_offsets(per: int) -> Array:
+	if per >= 9:
+		var out: Array = []
+		for r in range(3):
+			for c in range(3):
+				out.append(Vector3((c - 1) * 1.05, 0, (r - 1) * 1.05))
+		return out
+	if per == 3:
+		return [Vector3(-1.0, 0, -0.6), Vector3(1.0, 0, -0.4), Vector3(0, 0, 0.9)]
+	if per == 4:
+		return [Vector3(-0.8, 0, -0.8), Vector3(0.8, 0, -0.8), Vector3(-0.8, 0, 0.8), Vector3(0.8, 0, 0.8)]
+	return [Vector3.ZERO]
+
 func _spawn_crop(i: int, crop_idx: int, planted: float) -> void:
 	var p: Dictionary = plots[i]
 	var crop: Dictionary = CROPS[crop_idx]
+	var per: int = crop.get("per", 4)
+	var offs := _grid_offsets(per)
 	var holder := Node3D.new()
-	holder.position = p.body.position
+	holder.position = p.body.position + Vector3(0, 0.34, 0)   # plants sit ON the soil, not inside it
 	add_child(holder)
-	var stem: Node3D = null
 	var fruits: Array = []
-	if crop.has("model"):
-		var m := _model(crop.model, crop.h)
-		if m:
-			holder.add_child(m)
-			holder.scale = Vector3(0.1, 0.1, 0.1)
-			p.is_model = true
-	if not p.get("is_model"):
-		stem = _cyl(0.09, 0.13, 1.0, Vector3(0, 0.5, 0), Color(0.3, 0.5, 0.2), holder)
-		for off in [Vector3(0.35, 0.95, 0.1), Vector3(-0.3, 0.8, 0.2), Vector3(0.05, 1.1, -0.3)]:
-			var fr := _sphere(0.28, off, crop.color, holder)
-			fr.scale = Vector3.ZERO
+	var uh: float = crop.get("h", 1.5)
+	if per >= 9:
+		uh = uh * 0.55
+	elif per >= 3:
+		uh = uh * 0.75
+	p.is_model = crop.has("model")
+	for off in offs:
+		if p.is_model:
+			var m := _model(crop.model, uh)
+			if m:
+				m.position += off
+				m.rotation_degrees.y = randf_range(0, 360)
+				holder.add_child(m)
+		else:
+			_cyl(0.06, 0.09, uh * 0.6, off + Vector3(0, uh * 0.3, 0), Color(0.3, 0.5, 0.2), holder)
+			var fr := _sphere(0.17, off + Vector3(randf_range(-0.1, 0.1), uh * 0.62, randf_range(-0.1, 0.1)), crop.color, holder)
 			fruits.append(fr)
+	holder.scale = Vector3(0.1, 0.1, 0.1)
 	p.crop = crop_idx
 	p.node = holder
-	p.stem = stem
+	p.stem = null
 	p.fruits = fruits
 	p.planted = planted
 
@@ -553,28 +574,41 @@ func _harvest(i: int) -> void:
 	var crop: Dictionary = CROPS[p.crop]
 	var pay := int(round(crop.pay * _mult()))
 	coins += pay
+	var is_tree: bool = crop.get("tree", false)
 	_update_coins()
 	_burst(p.body.position, crop.color, 8)
 	_float_text(p.body.position, "+%d 🪙" % pay, Color(1, 0.9, 0.35))
 	if p.get("mark") and is_instance_valid(p.mark):
 		p.mark.queue_free()
 	p.mark = null
-	hint_label.text = "Harvested %s — +%d coins!" % [crop.name, pay]
-	p.node.queue_free()
-	p.node = null
-	p.stem = null
-	p.fruits = []
-	p.crop = -1
-	p.planted = 0.0
-	p.is_model = false
+	if is_tree:
+		# trees are permanent: fruit regrows (faster after the first harvest)
+		p.planted = Time.get_unix_time_from_system()
+		p.regrow = true
+		hint_label.text = "Harvested %s — +%d coins! The tree regrows 🌱" % [crop.name, pay]
+	else:
+		hint_label.text = "Harvested %s — +%d coins!" % [crop.name, pay]
+		p.node.queue_free()
+		p.node = null
+		p.stem = null
+		p.fruits = []
+		p.crop = -1
+		p.planted = 0.0
+		p.is_model = false
 	_refresh_plot_labels()
 	_save()
 
 func _growth(p: Dictionary) -> float:
 	if p.crop < 0:
 		return 0.0
+	var mins: float = CROPS[p.crop].mins
+	if p.get("regrow", false):
+		mins = mins * 0.6
 	var elapsed: float = Time.get_unix_time_from_system() - p.planted
-	return clamp(elapsed / (CROPS[p.crop].mins * 60.0), 0.0, 1.0)
+	var k: float = clamp(elapsed / (mins * 60.0), 0.0, 1.0)
+	if p.get("regrow", false):
+		k = max(k, 0.82)   # regrowing tree stays full-size, only the final pop returns
+	return k
 
 # ---------- input: tap, drag-pan, pinch/wheel zoom ----------
 func _unhandled_input(event: InputEvent) -> void:
@@ -893,22 +927,14 @@ func _process(delta: float) -> void:
 	for p in plots:
 		if p.crop >= 0 and p.node:
 			var k := _growth(p)
-			if p.get("is_model"):
-				var ms: float = 0.12 + 0.88 * k
-				p.node.scale = Vector3(ms, ms, ms)
-			else:
-				p.stem.scale = Vector3(1, 0.15 + 0.85 * k, 1)
-				p.stem.position.y = 0.5 * p.stem.scale.y
-				var fk: float = clamp((k - 0.7) / 0.3, 0.0, 1.0)
-				for fr in p.fruits:
-					fr.scale = Vector3(fk, fk, fk)
+			var ms: float = 0.12 + 0.88 * k
+			p.node.scale = Vector3(ms, ms, ms)
+			var fk: float = clamp((k - 0.7) / 0.3, 0.0, 1.0)
+			for fr in p.fruits:
+				fr.scale = Vector3(fk, fk, fk)
 			if k >= 1.0:
 				var bob := 1.0 + sin(Time.get_ticks_msec() / 200.0) * 0.08
-				if p.get("is_model"):
-					p.node.scale = Vector3(bob, bob, bob)
-				else:
-					for fr in p.fruits:
-						fr.scale = Vector3(bob, bob, bob)
+				p.node.scale = Vector3(bob, bob, bob)
 				if not p.get("mark"):
 					var l := Label3D.new()
 					l.text = "!"
