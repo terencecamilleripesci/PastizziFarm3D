@@ -313,7 +313,7 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	add_child(ui)
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm 3D  v0.9.1"
+	title.text = "🥟 Pastizzi Farm 3D  v0.9.2"
 	title.position = Vector2(20, 18)
 	title.add_theme_font_size_override("font_size", 30)
 	ui.add_child(title)
