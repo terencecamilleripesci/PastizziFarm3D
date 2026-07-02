@@ -442,14 +442,22 @@ func _build_chicken() -> void:
 	chicken.position = Vector3(7, 0, 7)
 	chick_target = chicken.position
 
+func _roam_spot() -> Vector3:
+	for i in range(12):   # pick spots outside the crop field (|x|>7 or z beyond the plots)
+		var v := Vector3(randf_range(-11.5, 11.5), 0, randf_range(-11.5, 11.5))
+		if abs(v.x) > 7.2 or v.z < -7.2 or v.z > 10.0:
+			return v
+	return Vector3(9, 0, 9)
+
 func _chicken_process(delta: float) -> void:
 	if chicken.position.distance_to(chick_target) < 0.3:
-		chick_target = Vector3(randf_range(-11, 11), 0, randf_range(-11, 11))
+		chick_target = _roam_spot()
 	else:
 		var dir := (chick_target - chicken.position).normalized()
 		chicken.position += dir * delta * 1.1
 		chicken.position.y = abs(sin(Time.get_ticks_msec() / 90.0)) * 0.09
 		chicken.look_at(chicken.position + dir)
+		chicken.rotate_y(PI)   # model's head is on +Z — face the walk direction
 	egg_timer += delta
 	if egg_timer >= 45.0 and eggs.size() < 3:
 		egg_timer = 0.0
@@ -482,12 +490,13 @@ func _build_goat() -> void:
 
 func _goat_process(delta: float) -> void:
 	if goat.position.distance_to(goat_target) < 0.3:
-		goat_target = Vector3(randf_range(-11, 11), 0, randf_range(-11, 11))
+		goat_target = _roam_spot()
 	else:
 		var dir := (goat_target - goat.position).normalized()
 		goat.position += dir * delta * 0.8
 		goat.position.y = abs(sin(Time.get_ticks_msec() / 130.0)) * 0.06
 		goat.look_at(goat.position + dir)
+		goat.rotate_y(PI)      # same — walk head-first
 	milk_timer += delta
 	if milk_timer >= 75.0 and milks.size() < 2:
 		milk_timer = 0.0
