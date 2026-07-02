@@ -94,9 +94,27 @@ func _build_world() -> void:
 	_box(Vector3(26, 1.0, 0.7), Vector3(0, 0.5, 13), stone)
 	_box(Vector3(0.7, 1.0, 26), Vector3(-13, 0.5, 0), stone)
 	_box(Vector3(0.7, 1.0, 26), Vector3(13, 0.5, 0), stone)
-	# girna hut
-	_box(Vector3(2.4, 1.6, 2.4), Vector3(-9.5, 0.8, -9.5), stone)
-	_cyl(0.0, 1.9, 1.4, Vector3(-9.5, 2.3, -9.5), Color(0.7, 0.58, 0.4))
+	# the farmhouse (real 3D model, generated with Meshy AI)
+	var house_scene: PackedScene = load("res://assets/house.glb")
+	if house_scene:
+		var house := house_scene.instantiate()
+		add_child(house)
+		house.position = Vector3(-9.3, 0, -9.3)
+		house.rotation_degrees.y = 35
+		# normalise whatever scale the model shipped with to ~3.4 units tall
+		var aabb := AABB()
+		var found := false
+		for child in house.find_children("*", "MeshInstance3D", true):
+			var b: AABB = child.get_aabb()
+			if not found:
+				aabb = b
+				found = true
+			else:
+				aabb = aabb.merge(b)
+		if found and aabb.size.y > 0.01:
+			var f := 3.4 / aabb.size.y
+			house.scale = Vector3(f, f, f)
+			house.position.y = -aabb.position.y * f
 	# stone well
 	_cyl(1.0, 1.0, 0.9, Vector3(9.5, 0.45, -9.5), Color(0.78, 0.68, 0.5))
 	_cyl(0.0, 1.2, 0.8, Vector3(9.5, 1.9, -9.5), Color(0.6, 0.34, 0.2))
