@@ -5,10 +5,10 @@ extends Node3D
 
 const CROPS := [
 	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25, "model": "res://assets/tomato.glb", "h": 1.7 },
-	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55 },
-	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95 },
+	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55, "model": "res://assets/strawberry.glb", "h": 1.4 },
+	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95, "model": "res://assets/orange.glb", "h": 2.6 },
 	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb", "h": 1.9 },
-	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260 },
+	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb", "h": 2.5 },
 ]
 const SAVE_PATH := "user://farm.json"
 const DAY_SECONDS := 180.0            # full day/night loop = 3 minutes
@@ -26,6 +26,9 @@ var milk_timer := 0.0
 var milks: Array = []
 var ext := 0                          # extra land bought (0..3)
 var clouds: Array = []
+var donkey: Node3D
+var donkey_target := Vector3.ZERO
+var dog: Node3D
 var plots: Array = []                 # { body, crop(int idx|-1), node, stem, fruits, planted(unix) }
 var cam: Camera3D
 var sun: DirectionalLight3D
@@ -242,6 +245,8 @@ func _build_ui() -> void:
 	_pick_seed(0)
 	_build_chicken()
 	_build_goat()
+	_build_donkey()
+	_build_dog()
 	_update_coins()
 
 func _pick_seed(i: int) -> void:
@@ -560,6 +565,44 @@ func _goat_process(delta: float) -> void:
 		milks.append(body)
 		hint_label.text = "🥛 Il-mogħża left milk — tap it!"
 
+# ---------- il-ħmar & il-kelb tal-fenek ----------
+func _build_donkey() -> void:
+	donkey = Node3D.new()
+	add_child(donkey)
+	var m := _model("res://assets/donkey.glb", 1.8)
+	if m:
+		donkey.add_child(m)
+	donkey.position = Vector3(9, 0, -3)
+	donkey_target = donkey.position
+
+func _build_dog() -> void:
+	dog = Node3D.new()
+	add_child(dog)
+	var m := _model("res://assets/dog.glb", 1.4)
+	if m:
+		dog.add_child(m)
+	dog.position = Vector3(-9, 0, 9)
+
+func _donkey_process(delta: float) -> void:
+	if donkey.position.distance_to(donkey_target) < 0.3:
+		donkey_target = _roam_spot()
+	else:
+		var dir := (donkey_target - donkey.position).normalized()
+		donkey.position += dir * delta * 0.55
+		donkey.position.y = abs(sin(Time.get_ticks_msec() / 170.0)) * 0.05
+		donkey.look_at(donkey.position + dir)
+		donkey.rotate_y(PI)
+
+func _dog_process(delta: float) -> void:
+	# the kelb tal-fenek playfully chases the chicken (never quite catches her)
+	var to_chick := chicken.position - dog.position
+	if to_chick.length() > 2.2:
+		var dir := to_chick.normalized()
+		dog.position += dir * delta * 1.0
+		dog.position.y = abs(sin(Time.get_ticks_msec() / 80.0)) * 0.12
+		dog.look_at(dog.position + dir)
+		dog.rotate_y(PI)
+
 # ---------- live growth + day/night ----------
 func _process(delta: float) -> void:
 	for p in plots:
@@ -595,6 +638,8 @@ func _process(delta: float) -> void:
 					p.mark.position.y = p.body.position.y + 2.2 + sin(Time.get_ticks_msec() / 250.0) * 0.15
 	_chicken_process(delta)
 	_goat_process(delta)
+	_donkey_process(delta)
+	_dog_process(delta)
 	for cl in clouds:
 		cl.position.x += delta * 0.45
 		if cl.position.x > 22:
