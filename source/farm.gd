@@ -25,6 +25,12 @@ var goat_target := Vector3.ZERO
 var milk_timer := 0.0
 var milks: Array = []
 var ext := 0                          # extra land bought (0..3)
+var house_lvl := 1                    # farmhouse tier (1..3) — boosts sell prices
+var zone2 := false                    # the orchard beyond the east wall
+var zone2_node: Node3D
+var gate_node: Node3D
+var up_btn: Button
+var cam_max_x := 20.0
 var clouds: Array = []
 var donkey: Node3D
 var donkey_target := Vector3.ZERO
@@ -44,11 +50,19 @@ var dragging := false
 func _ready() -> void:
 	_build_world()
 	_build_plots()
+	_build_zone2()
 	_build_camera_and_light()
 	_build_ui()
 	_load()
 
 # ---------- helpers ----------
+func _tmat(path: String, tile: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(path)
+	m.uv1_scale = Vector3(tile, tile, tile)
+	m.roughness = 1.0
+	return m
+
 func _mat(c: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
@@ -111,13 +125,13 @@ func _model(path: String, target_h: float) -> Node3D:
 
 # ---------- world ----------
 func _build_world() -> void:
-	_box(Vector3(26, 0.5, 26), Vector3(0, -0.25, 0), Color(0.45, 0.62, 0.28))       # field
+	var ground := _box(Vector3(26, 0.5, 26), Vector3(0, -0.25, 0), Color(1, 1, 1))   # field
+	ground.material_override = _tmat("res://assets/tex_grass.png", 9.0)
 	_box(Vector3(60, 0.2, 18), Vector3(0, -0.4, -26), Color(0.16, 0.45, 0.68))      # the sea beyond
 	var stone := Color(0.85, 0.74, 0.55)
-	_box(Vector3(26, 1.0, 0.7), Vector3(0, 0.5, -13), stone)
-	_box(Vector3(26, 1.0, 0.7), Vector3(0, 0.5, 13), stone)
-	_box(Vector3(0.7, 1.0, 26), Vector3(-13, 0.5, 0), stone)
-	_box(Vector3(0.7, 1.0, 26), Vector3(13, 0.5, 0), stone)
+	var wall_mat := _tmat("res://assets/tex_stone.png", 4.0)
+	for wall in [_box(Vector3(26, 1.0, 0.7), Vector3(0, 0.5, -13), stone), _box(Vector3(26, 1.0, 0.7), Vector3(0, 0.5, 13), stone), _box(Vector3(0.7, 1.0, 26), Vector3(-13, 0.5, 0), stone), _box(Vector3(0.7, 1.0, 26), Vector3(13, 0.5, 0), stone)]:
+		wall.material_override = wall_mat
 	# the farmhouse (real 3D model, generated with Meshy AI)
 	var house_scene: PackedScene = load("res://assets/house.glb")
 	if house_scene:
@@ -150,6 +164,25 @@ func _build_world() -> void:
 	# prickly pears
 	for i in range(3):
 		_box(Vector3(0.8, 1.1, 0.4), Vector3(5.0 + i * 2.2, 0.55, -11.8), Color(0.35, 0.55, 0.25))
+	# sandy paths between the plot rows
+	for z in [-2.1, 2.1]:
+		_box(Vector3(12.6, 0.06, 1.0), Vector3(0, 0.01, z), Color(0.8, 0.7, 0.5))
+	for x in [-2.1, 2.1]:
+		_box(Vector3(1.0, 0.06, 12.6), Vector3(x, 0.01, 0), Color(0.8, 0.7, 0.5))
+	# wildflowers along the walls
+	for i in range(14):
+		var fx := randf_range(-12, 12)
+		var fz := (-12.2 if randf() < 0.5 else 12.2) + randf_range(-0.5, 0.5)
+		if randf() < 0.4:
+			var t := fx
+			fx = (-12.2 if randf() < 0.5 else 12.2)
+			fz = t
+		_cyl(0.02, 0.03, 0.4, Vector3(fx, 0.2, fz), Color(0.3, 0.52, 0.22))
+		_sphere(0.12, Vector3(fx, 0.45, fz), [Color(0.95, 0.45, 0.6), Color(0.98, 0.85, 0.3), Color(0.9, 0.9, 0.95), Color(0.85, 0.4, 0.9)][randi() % 4])
+	# scattered rocks
+	for i in range(6):
+		var r := _sphere(randf_range(0.25, 0.5), Vector3(randf_range(-11, 11), 0.1, randf_range(9.5, 11.5)), Color(0.62, 0.58, 0.52))
+		r.scale.y = 0.55
 	# drifting clouds
 	for i in range(3):
 		var cl := Node3D.new()
@@ -165,7 +198,14 @@ func _build_plots() -> void:
 		for c in range(3):
 			var pos := Vector3((c - 1) * 4.2, 0.05, (r - 1) * 4.2)
 			var locked := r == 3
-			var soil := _box(Vector3(3.4, 0.3, 3.4), pos, Color(0.55, 0.5, 0.42) if locked else Color(0.42, 0.28, 0.16))
+			var soil := _box(Vector3(3.4, 0.3, 3.4), pos, Color(0.55, 0.5, 0.42))
+			if not locked:
+				soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
+			var bc := Color(0.78, 0.68, 0.5)
+			_box(Vector3(3.8, 0.22, 0.2), pos + Vector3(0, 0.06, -1.8), bc)
+			_box(Vector3(3.8, 0.22, 0.2), pos + Vector3(0, 0.06, 1.8), bc)
+			_box(Vector3(0.2, 0.22, 3.8), pos + Vector3(-1.8, 0.06, 0), bc)
+			_box(Vector3(0.2, 0.22, 3.8), pos + Vector3(1.8, 0.06, 0), bc)
 			if not locked:
 				for k in range(3):                                 # tilled ridges
 					_box(Vector3(3.0, 0.1, 0.35), pos + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
@@ -183,9 +223,70 @@ func _build_plots() -> void:
 func _unlock_plot(i: int) -> void:
 	var p: Dictionary = plots[i]
 	p.locked = false
-	p.soil.material_override = _mat(Color(0.42, 0.28, 0.16))
+	p.soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
 	for k in range(3):
 		_box(Vector3(3.0, 0.1, 0.35), p.body.position + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
+
+func _build_zone2() -> void:
+	zone2_node = Node3D.new()
+	add_child(zone2_node)
+	var g2 := _box(Vector3(12, 0.5, 26), Vector3(20, -0.25, 0), Color(1, 1, 1), zone2_node)
+	g2.material_override = _tmat("res://assets/tex_grass.png", 7.0)
+	var stone := Color(0.85, 0.74, 0.55)
+	var wm2 := _tmat("res://assets/tex_stone.png", 4.0)
+	for w2 in [_box(Vector3(12, 1.0, 0.7), Vector3(20, 0.5, -13), stone, zone2_node), _box(Vector3(12, 1.0, 0.7), Vector3(20, 0.5, 13), stone, zone2_node), _box(Vector3(0.7, 1.0, 26), Vector3(26, 0.5, 0), stone, zone2_node)]:
+		w2.material_override = wm2
+	for r in range(2):
+		for c in range(3):
+			var pos := Vector3(17.0 + c * 4.2, 0.05, -4.2 + r * 8.4)
+			var soil := _box(Vector3(3.4, 0.3, 3.4), pos, Color(1, 1, 1), zone2_node)
+			soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
+			var bc := Color(0.78, 0.68, 0.5)
+			_box(Vector3(3.8, 0.22, 0.2), pos + Vector3(0, 0.06, -1.8), bc, zone2_node)
+			_box(Vector3(3.8, 0.22, 0.2), pos + Vector3(0, 0.06, 1.8), bc, zone2_node)
+			_box(Vector3(0.2, 0.22, 3.8), pos + Vector3(-1.8, 0.06, 0), bc, zone2_node)
+			_box(Vector3(0.2, 0.22, 3.8), pos + Vector3(1.8, 0.06, 0), bc, zone2_node)
+			var body := StaticBody3D.new()
+			var shape := CollisionShape3D.new()
+			var bs := BoxShape3D.new()
+			bs.size = Vector3(3.4, 1.6, 3.4)
+			shape.shape = bs
+			body.add_child(shape)
+			body.position = pos
+			zone2_node.add_child(body)
+			body.set_meta("plot", plots.size())
+			plots.append({ "body": body, "soil": soil, "locked": true, "zone2": true, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+	zone2_node.visible = false
+	# the wooden gate in the east wall (tap to buy the orchard)
+	gate_node = Node3D.new()
+	add_child(gate_node)
+	_box(Vector3(0.5, 1.6, 3.0), Vector3(13, 0.8, 0), Color(0.55, 0.38, 0.2), gate_node)
+	var gl := Label3D.new()
+	gl.text = "🌳 🪙800"
+	gl.font_size = 64
+	gl.outline_size = 12
+	gl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	gl.position = Vector3(12.6, 2.4, 0)
+	gate_node.add_child(gl)
+	var gb := StaticBody3D.new()
+	var gs := CollisionShape3D.new()
+	var gbs := BoxShape3D.new()
+	gbs.size = Vector3(1.2, 2.2, 3.2)
+	gs.shape = gbs
+	gb.add_child(gs)
+	gb.position = Vector3(13, 1.0, 0)
+	gate_node.add_child(gb)
+	gb.set_meta("gate", true)
+
+func _open_zone2() -> void:
+	zone2 = true
+	zone2_node.visible = true
+	for p in plots:
+		if p.get("zone2"):
+			p.locked = false
+	if is_instance_valid(gate_node):
+		gate_node.queue_free()
+	cam_max_x = 27.0
 
 func _build_camera_and_light() -> void:
 	cam = Camera3D.new()
@@ -242,6 +343,16 @@ func _build_ui() -> void:
 		b.pressed.connect(_pick_seed.bind(i))
 		bar.add_child(b)
 		seed_btns.append(b)
+	up_btn = Button.new()
+	up_btn.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	up_btn.offset_left = -235
+	up_btn.offset_right = -14
+	up_btn.offset_top = 14
+	up_btn.offset_bottom = 58
+	up_btn.add_theme_font_size_override("font_size", 15)
+	up_btn.pressed.connect(_upgrade_house)
+	ui.add_child(up_btn)
+	_refresh_up_btn()
 	_pick_seed(0)
 	_build_chicken()
 	_build_goat()
@@ -253,6 +364,13 @@ func _pick_seed(i: int) -> void:
 	sel_crop = i
 	for j in range(seed_btns.size()):
 		seed_btns[j].modulate = Color(1, 0.85, 0.4) if j == i else Color(1, 1, 1)
+
+func _mult() -> float:
+	return 1.0 + 0.1 * float(house_lvl - 1)
+
+func confetti_hint() -> void:
+	hint_label.text = "🌳 THE ORCHARD IS YOURS — 6 new plots to the east!"
+	_burst(Vector3(13, 1, 0), Color(1, 0.85, 0.3), 12)
 
 func _update_coins() -> void:
 	coins_label.text = "🪙 %d" % coins
@@ -284,7 +402,7 @@ func _float_text(pos: Vector3, txt: String, col: Color) -> void:
 
 # ---------- save / load (survives closing the game) ----------
 func _save() -> void:
-	var d := { "coins": coins, "ext": ext, "plots": [] }
+	var d := { "coins": coins, "ext": ext, "hl": house_lvl, "z2": zone2, "plots": [] }
 	for p in plots:
 		d.plots.append({ "crop": p.crop, "planted": p.planted })
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -304,6 +422,11 @@ func _load() -> void:
 	ext = int(d.get("ext", 0))
 	for e in range(ext):
 		_unlock_plot(9 + e)
+	house_lvl = int(d.get("hl", 1))
+	_house_extras()
+	_refresh_up_btn()
+	if d.get("z2", false):
+		_open_zone2()
 	var saved: Array = d.get("plots", [])
 	for i in range(min(saved.size(), plots.size())):
 		var s: Dictionary = saved[i]
@@ -355,14 +478,15 @@ func _plant(i: int) -> void:
 func _harvest(i: int) -> void:
 	var p: Dictionary = plots[i]
 	var crop: Dictionary = CROPS[p.crop]
-	coins += crop.pay
+	var pay := int(round(crop.pay * _mult()))
+	coins += pay
 	_update_coins()
 	_burst(p.body.position, crop.color, 8)
-	_float_text(p.body.position, "+%d 🪙" % crop.pay, Color(1, 0.9, 0.35))
+	_float_text(p.body.position, "+%d 🪙" % pay, Color(1, 0.9, 0.35))
 	if p.get("mark") and is_instance_valid(p.mark):
 		p.mark.queue_free()
 	p.mark = null
-	hint_label.text = "Harvested %s — +%d coins!" % [crop.name, crop.pay]
+	hint_label.text = "Harvested %s — +%d coins!" % [crop.name, pay]
 	p.node.queue_free()
 	p.node = null
 	p.stem = null
@@ -426,7 +550,7 @@ func _pan(pos: Vector2) -> void:
 		fwd.y = 0
 		fwd = fwd.normalized()
 		cam.position -= right * delta.x * 0.02 + fwd * -delta.y * 0.02
-		cam.position.x = clamp(cam.position.x, 4, 20)
+		cam.position.x = clamp(cam.position.x, 4, cam_max_x)
 		cam.position.z = clamp(cam.position.z, 4, 20)
 		drag_last = pos
 
@@ -436,6 +560,18 @@ func _tap(screen_pos: Vector2) -> void:
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 200)
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
+		return
+	if hit.collider.has_meta("gate"):
+		if zone2:
+			return
+		if coins < 800:
+			hint_label.text = "The orchard costs 🪙800 — keep farming!"
+			return
+		coins -= 800
+		_update_coins()
+		_open_zone2()
+		confetti_hint()
+		_save()
 		return
 	if hit.collider.has_meta("milk"):
 		coins += 15
@@ -485,6 +621,50 @@ func _tap(screen_pos: Vector2) -> void:
 		hint_label.text = "%s still growing — %d s left" % [CROPS[p.crop].name, int(max(0, left))]
 
 # ---------- it-tiġieġa: wandering chicken that lays eggs ----------
+const HOUSE_COSTS := [0, 400, 900]
+func _refresh_up_btn() -> void:
+	if house_lvl >= 3:
+		up_btn.text = "🏠 Razzett Lv3 MAX — prices +20%"
+		up_btn.disabled = true
+	else:
+		up_btn.text = "🏠 Upgrade Lv%d → 🪙%d (+10%% prices)" % [house_lvl + 1, HOUSE_COSTS[house_lvl]]
+		up_btn.disabled = false
+
+func _upgrade_house() -> void:
+	if house_lvl >= 3:
+		return
+	var cost: int = HOUSE_COSTS[house_lvl]
+	if coins < cost:
+		hint_label.text = "Upgrade costs 🪙%d — keep farming!" % cost
+		return
+	coins -= cost
+	house_lvl += 1
+	_update_coins()
+	_house_extras()
+	_refresh_up_btn()
+	_burst(Vector3(-9.3, 1.5, -9.3), Color(1, 0.85, 0.3), 10)
+	_float_text(Vector3(-9.3, 2, -9.3), "Lv%d!" % house_lvl, Color(1, 0.9, 0.4))
+	hint_label.text = "🏠 The razzett grows — all sell prices +10%!"
+	_save()
+
+func _house_extras() -> void:
+	var stone := Color(0.85, 0.74, 0.55)
+	if house_lvl >= 2 and not has_node("hx2"):
+		var n := Node3D.new()
+		n.name = "hx2"
+		add_child(n)
+		_box(Vector3(1.8, 1.2, 1.8), Vector3(-7.2, 0.6, -9.8), stone, n)          # side annex
+		_sphere(0.55, Vector3(-7.9, 1.5, -8.9), Color(0.85, 0.3, 0.5), n)          # bougainvillea
+		_sphere(0.4, Vector3(-7.4, 1.3, -8.7), Color(0.9, 0.4, 0.6), n)
+	if house_lvl >= 3 and not has_node("hx3"):
+		var n := Node3D.new()
+		n.name = "hx3"
+		add_child(n)
+		_cyl(0.5, 0.6, 1.6, Vector3(-11.2, 0.8, -8.2), stone, n)                   # little tower
+		_sphere(0.55, Vector3(-11.2, 1.85, -8.2), Color(0.95, 0.8, 0.4), n)        # gold dome
+		_box(Vector3(0.06, 0.7, 0.06), Vector3(-11.2, 2.6, -8.2), Color(0.5, 0.35, 0.2), n)
+		_box(Vector3(0.5, 0.3, 0.04), Vector3(-10.95, 2.75, -8.2), Color(0.85, 0.2, 0.2), n)  # 🇲🇹 flag
+
 func _build_chicken() -> void:
 	chicken = Node3D.new()
 	add_child(chicken)
