@@ -1,0 +1,19 @@
+; Pastizzi Farm 3D — prototype
+config_version=5
+
+[application]
+config/name="Pastizzi Farm 3D"
+run/main_scene="res://farm.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[display]
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/handheld/orientation=1
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.53, 0.75, 0.92, 1)
