@@ -4,14 +4,22 @@ extends Node3D
 # progress saves on-device, pinch/wheel zoom, drag pan, day/night cycle.
 
 const CROPS := [
-	{ "id": "tadam",  "name": "Tadam",  "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "pay": 20 },
-	{ "id": "frawli", "name": "Frawli", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "pay": 45 },
-	{ "id": "qargha", "name": "Qargħa", "color": Color(0.95, 0.62, 0.12), "mins": 10.0, "pay": 100 },
+	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25 },
+	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55 },
+	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95 },
+	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150 },
+	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260 },
 ]
 const SAVE_PATH := "user://farm.json"
 const DAY_SECONDS := 180.0            # full day/night loop = 3 minutes
 
-var coins := 0
+var coins := 50
+var sel_crop := 0
+var seed_btns: Array = []
+var chicken: Node3D
+var chick_target := Vector3.ZERO
+var egg_timer := 0.0
+var eggs: Array = []
 var plots: Array = []                 # { body, crop(int idx|-1), node, stem, fruits, planted(unix) }
 var cam: Camera3D
 var sun: DirectionalLight3D
@@ -147,11 +155,35 @@ func _build_ui() -> void:
 	coins_label.add_theme_font_size_override("font_size", 26)
 	ui.add_child(coins_label)
 	hint_label = Label.new()
-	hint_label.text = "Tap a plot to plant — crops grow in real time, even while you're away!"
+	hint_label.text = "Pick a seed below, tap a plot — crops grow in real time, even while you're away!"
 	hint_label.position = Vector2(20, 100)
 	hint_label.add_theme_font_size_override("font_size", 15)
 	ui.add_child(hint_label)
+	var bar := HBoxContainer.new()
+	bar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.offset_top = -92
+	bar.offset_bottom = -16
+	bar.offset_left = 12
+	bar.offset_right = -12
+	bar.add_theme_constant_override("separation", 8)
+	ui.add_child(bar)
+	for i in range(CROPS.size()):
+		var b := Button.new()
+		var c: Dictionary = CROPS[i]
+		b.text = "%s %s\n🪙%d · %sm" % [c.e, c.name, c.seed, str(c.mins)]
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 13)
+		b.pressed.connect(_pick_seed.bind(i))
+		bar.add_child(b)
+		seed_btns.append(b)
+	_pick_seed(0)
+	_build_chicken()
 	_update_coins()
+
+func _pick_seed(i: int) -> void:
+	sel_crop = i
+	for j in range(seed_btns.size()):
+		seed_btns[j].modulate = Color(1, 0.85, 0.4) if j == i else Color(1, 1, 1)
 
 func _update_coins() -> void:
 	coins_label.text = "🪙 %d" % coins
@@ -202,9 +234,14 @@ func _spawn_crop(i: int, crop_idx: int, planted: float) -> void:
 	p.planted = planted
 
 func _plant(i: int) -> void:
-	var crop_idx := randi() % CROPS.size()
-	_spawn_crop(i, crop_idx, Time.get_unix_time_from_system())
-	hint_label.text = "%s planted — ready in %s min!" % [CROPS[crop_idx].name, str(CROPS[crop_idx].mins)]
+	var crop: Dictionary = CROPS[sel_crop]
+	if coins < crop.seed:
+		hint_label.text = "Not enough coins for %s seeds (🪙%d) — harvest something first!" % [crop.name, crop.seed]
+		return
+	coins -= crop.seed
+	_update_coins()
+	_spawn_crop(i, sel_crop, Time.get_unix_time_from_system())
+	hint_label.text = "%s planted — ready in %s min!" % [crop.name, str(crop.mins)]
 	_save()
 
 func _harvest(i: int) -> void:
@@ -284,7 +321,17 @@ func _tap(screen_pos: Vector2) -> void:
 	var dir := cam.project_ray_normal(screen_pos)
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 200)
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if hit.is_empty() or not hit.collider.has_meta("plot"):
+	if hit.is_empty():
+		return
+	if hit.collider.has_meta("egg"):
+		coins += 8
+		_update_coins()
+		eggs.erase(hit.collider)
+		hit.collider.queue_free()
+		hint_label.text = "🥚 +8 coins!"
+		_save()
+		return
+	if not hit.collider.has_meta("plot"):
 		return
 	var i: int = hit.collider.get_meta("plot")
 	var p: Dictionary = plots[i]
@@ -295,6 +342,40 @@ func _tap(screen_pos: Vector2) -> void:
 	else:
 		var left: float = CROPS[p.crop].mins * 60.0 - (Time.get_unix_time_from_system() - p.planted)
 		hint_label.text = "%s still growing — %d s left" % [CROPS[p.crop].name, int(max(0, left))]
+
+# ---------- it-tiġieġa: wandering chicken that lays eggs ----------
+func _build_chicken() -> void:
+	chicken = Node3D.new()
+	add_child(chicken)
+	_box(Vector3(0.55, 0.45, 0.75), Vector3(0, 0.42, 0), Color(0.95, 0.93, 0.88), chicken)
+	_box(Vector3(0.3, 0.3, 0.3), Vector3(0, 0.75, 0.42), Color(0.95, 0.93, 0.88), chicken)
+	_box(Vector3(0.1, 0.14, 0.18), Vector3(0, 0.88, 0.42), Color(0.85, 0.2, 0.15), chicken)
+	_box(Vector3(0.08, 0.08, 0.16), Vector3(0, 0.72, 0.6), Color(0.95, 0.65, 0.2), chicken)
+	chicken.position = Vector3(7, 0, 7)
+	chick_target = chicken.position
+
+func _chicken_process(delta: float) -> void:
+	if chicken.position.distance_to(chick_target) < 0.3:
+		chick_target = Vector3(randf_range(-11, 11), 0, randf_range(-11, 11))
+	else:
+		var dir := (chick_target - chicken.position).normalized()
+		chicken.position += dir * delta * 1.1
+		chicken.look_at(chicken.position + dir)
+	egg_timer += delta
+	if egg_timer >= 45.0 and eggs.size() < 3:
+		egg_timer = 0.0
+		var body := StaticBody3D.new()
+		var shape := CollisionShape3D.new()
+		var bs := SphereShape3D.new()
+		bs.radius = 0.6
+		shape.shape = bs
+		body.add_child(shape)
+		body.position = chicken.position + Vector3(0, 0.2, -0.5)
+		body.set_meta("egg", true)
+		add_child(body)
+		_sphere(0.22, Vector3(0, 0, 0), Color(0.98, 0.95, 0.85), body)
+		eggs.append(body)
+		hint_label.text = "🥚 It-tiġieġa laid an egg — tap it!"
 
 # ---------- live growth + day/night ----------
 func _process(delta: float) -> void:
@@ -310,6 +391,7 @@ func _process(delta: float) -> void:
 				var bob := 1.0 + sin(Time.get_ticks_msec() / 200.0) * 0.08
 				for fr in p.fruits:
 					fr.scale = Vector3(bob, bob, bob)
+	_chicken_process(delta)
 	# gentle day/night cycle
 	day_t += delta
 	var a := day_t * TAU / DAY_SECONDS
