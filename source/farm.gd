@@ -20,6 +20,11 @@ var chicken: Node3D
 var chick_target := Vector3.ZERO
 var egg_timer := 0.0
 var eggs: Array = []
+var goat: Node3D
+var goat_target := Vector3.ZERO
+var milk_timer := 0.0
+var milks: Array = []
+var ext := 0                          # extra land bought (0..3)
 var plots: Array = []                 # { body, crop(int idx|-1), node, stem, fruits, planted(unix) }
 var cam: Camera3D
 var sun: DirectionalLight3D
@@ -103,13 +108,16 @@ func _build_world() -> void:
 	for i in range(3):
 		_box(Vector3(0.8, 1.1, 0.4), Vector3(5.0 + i * 2.2, 0.55, -11.8), Color(0.35, 0.55, 0.25))
 
+const EXT_COSTS := [150, 300, 600]
 func _build_plots() -> void:
-	for r in range(3):
+	for r in range(4):                                             # row 4 = buyable land
 		for c in range(3):
 			var pos := Vector3((c - 1) * 4.2, 0.05, (r - 1) * 4.2)
-			_box(Vector3(3.4, 0.3, 3.4), pos, Color(0.42, 0.28, 0.16))
-			for k in range(3):                                        # tilled ridges
-				_box(Vector3(3.0, 0.1, 0.35), pos + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
+			var locked := r == 3
+			var soil := _box(Vector3(3.4, 0.3, 3.4), pos, Color(0.55, 0.5, 0.42) if locked else Color(0.42, 0.28, 0.16))
+			if not locked:
+				for k in range(3):                                 # tilled ridges
+					_box(Vector3(3.0, 0.1, 0.35), pos + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
 			var body := StaticBody3D.new()
 			var shape := CollisionShape3D.new()
 			var bs := BoxShape3D.new()
@@ -119,7 +127,14 @@ func _build_plots() -> void:
 			body.position = pos
 			add_child(body)
 			body.set_meta("plot", plots.size())
-			plots.append({ "body": body, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+			plots.append({ "body": body, "soil": soil, "locked": locked, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+
+func _unlock_plot(i: int) -> void:
+	var p: Dictionary = plots[i]
+	p.locked = false
+	p.soil.material_override = _mat(Color(0.42, 0.28, 0.16))
+	for k in range(3):
+		_box(Vector3(3.0, 0.1, 0.35), p.body.position + Vector3(0, 0.2, (k - 1) * 1.0), Color(0.36, 0.23, 0.12))
 
 func _build_camera_and_light() -> void:
 	cam = Camera3D.new()
@@ -178,6 +193,7 @@ func _build_ui() -> void:
 		seed_btns.append(b)
 	_pick_seed(0)
 	_build_chicken()
+	_build_goat()
 	_update_coins()
 
 func _pick_seed(i: int) -> void:
@@ -190,7 +206,7 @@ func _update_coins() -> void:
 
 # ---------- save / load (survives closing the game) ----------
 func _save() -> void:
-	var d := { "coins": coins, "plots": [] }
+	var d := { "coins": coins, "ext": ext, "plots": [] }
 	for p in plots:
 		d.plots.append({ "crop": p.crop, "planted": p.planted })
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -207,6 +223,9 @@ func _load() -> void:
 	if d == null:
 		return
 	coins = int(d.get("coins", 0))
+	ext = int(d.get("ext", 0))
+	for e in range(ext):
+		_unlock_plot(9 + e)
 	var saved: Array = d.get("plots", [])
 	for i in range(min(saved.size(), plots.size())):
 		var s: Dictionary = saved[i]
@@ -323,6 +342,14 @@ func _tap(screen_pos: Vector2) -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
 		return
+	if hit.collider.has_meta("milk"):
+		coins += 15
+		_update_coins()
+		milks.erase(hit.collider)
+		hit.collider.queue_free()
+		hint_label.text = "🥛 +15 coins!"
+		_save()
+		return
 	if hit.collider.has_meta("egg"):
 		coins += 8
 		_update_coins()
@@ -335,6 +362,21 @@ func _tap(screen_pos: Vector2) -> void:
 		return
 	var i: int = hit.collider.get_meta("plot")
 	var p: Dictionary = plots[i]
+	if p.locked:
+		if i - 9 != ext:
+			hint_label.text = "Buy the land plots in order — next one costs 🪙%d" % EXT_COSTS[ext]
+			return
+		var cost: int = EXT_COSTS[ext]
+		if coins < cost:
+			hint_label.text = "That land costs 🪙%d — keep farming!" % cost
+			return
+		coins -= cost
+		ext += 1
+		_unlock_plot(i)
+		_update_coins()
+		hint_label.text = "🌾 New land! The għalqa grows."
+		_save()
+		return
 	if p.crop < 0:
 		_plant(i)
 	elif _growth(p) >= 1.0:
@@ -377,6 +419,43 @@ func _chicken_process(delta: float) -> void:
 		eggs.append(body)
 		hint_label.text = "🥚 It-tiġieġa laid an egg — tap it!"
 
+# ---------- il-mogħża: the goat, drops milk ----------
+func _build_goat() -> void:
+	goat = Node3D.new()
+	add_child(goat)
+	_box(Vector3(0.7, 0.6, 1.1), Vector3(0, 0.65, 0), Color(0.82, 0.8, 0.75), goat)
+	_box(Vector3(0.4, 0.4, 0.45), Vector3(0, 1.05, 0.6), Color(0.82, 0.8, 0.75), goat)
+	_box(Vector3(0.08, 0.25, 0.08), Vector3(-0.14, 1.35, 0.55), Color(0.4, 0.35, 0.3), goat)
+	_box(Vector3(0.08, 0.25, 0.08), Vector3(0.14, 1.35, 0.55), Color(0.4, 0.35, 0.3), goat)
+	for lx in [-0.22, 0.22]:
+		for lz in [-0.4, 0.4]:
+			_box(Vector3(0.12, 0.5, 0.12), Vector3(lx, 0.25, lz), Color(0.7, 0.68, 0.62), goat)
+	goat.position = Vector3(-7, 0, 5)
+	goat_target = goat.position
+
+func _goat_process(delta: float) -> void:
+	if goat.position.distance_to(goat_target) < 0.3:
+		goat_target = Vector3(randf_range(-11, 11), 0, randf_range(-11, 11))
+	else:
+		var dir := (goat_target - goat.position).normalized()
+		goat.position += dir * delta * 0.8
+		goat.look_at(goat.position + dir)
+	milk_timer += delta
+	if milk_timer >= 75.0 and milks.size() < 2:
+		milk_timer = 0.0
+		var body := StaticBody3D.new()
+		var shape := CollisionShape3D.new()
+		var bs := SphereShape3D.new()
+		bs.radius = 0.6
+		shape.shape = bs
+		body.add_child(shape)
+		body.position = goat.position + Vector3(0, 0.3, -0.6)
+		body.set_meta("milk", true)
+		add_child(body)
+		_cyl(0.16, 0.2, 0.45, Vector3(0, 0, 0), Color(0.92, 0.94, 0.97), body)
+		milks.append(body)
+		hint_label.text = "🥛 Il-mogħża left milk — tap it!"
+
 # ---------- live growth + day/night ----------
 func _process(delta: float) -> void:
 	for p in plots:
@@ -392,6 +471,7 @@ func _process(delta: float) -> void:
 				for fr in p.fruits:
 					fr.scale = Vector3(bob, bob, bob)
 	_chicken_process(delta)
+	_goat_process(delta)
 	# gentle day/night cycle
 	day_t += delta
 	var a := day_t * TAU / DAY_SECONDS
