@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.2.1 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.3 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -57,6 +57,11 @@ var luzzu: Node3D
 var clouds: Array = []
 var butterflies: Array = []
 var farmer: Node3D
+var farmer_ap: AnimationPlayer
+var kid_b: Node3D
+var kid_b_t := Vector3.ZERO
+var kid_g: Node3D
+var kid_g_t := Vector3.ZERO
 var farmer_dest := Vector3.ZERO
 var farmer_act := {}                  # {type, tile} — runs when nannu arrives
 var farmer_busy := false
@@ -72,6 +77,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_animals()
 	_build_farmer()
+	_build_kids()
 	_load()
 
 # ================= helpers =================
@@ -140,6 +146,19 @@ func _model(path: String, target_h: float) -> Node3D:
 		n.scale = Vector3(f, f, f)
 		n.position.y = -aabb.position.y * f
 	return n
+
+func _anim_setup(n: Node3D, autoplay: bool) -> AnimationPlayer:
+	if not n:
+		return null
+	var aps := n.find_children("*", "AnimationPlayer", true)
+	if aps.is_empty():
+		return null
+	var ap: AnimationPlayer = aps[0]
+	for an in ap.get_animation_list():
+		ap.get_animation(an).loop_mode = Animation.LOOP_LINEAR
+	if autoplay and ap.get_animation_list().size() > 0:
+		ap.play(ap.get_animation_list()[0])
+	return ap
 
 func _burst(pos: Vector3, color: Color, n: int = 6) -> void:
 	for i in range(n):
@@ -380,7 +399,7 @@ func _build_ui() -> void:
 	xrow.add_child(xp_bar)
 	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.2.1"
+	title.text = "🥟 Pastizzi Farm  v2.3"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -892,11 +911,39 @@ func _build_animals() -> void:
 func _build_farmer() -> void:
 	farmer = Node3D.new()
 	add_child(farmer)
-	var mf := _model("res://assets/farmer.glb", 2.0)
+	var mf := _model("res://assets/farmer_walk.glb", 2.0)
 	if mf:
 		farmer.add_child(mf)
+		farmer_ap = _anim_setup(mf, false)
 	farmer.position = Vector3(-7.5, 0, -7.5)
 	farmer_dest = farmer.position
+
+func _build_kids() -> void:
+	kid_b = Node3D.new()
+	add_child(kid_b)
+	var mb := _model("res://assets/boy.glb", 1.55)
+	if mb:
+		kid_b.add_child(mb)
+		_anim_setup(mb, true)
+	kid_b.position = Vector3(4, 0, 10)
+	kid_b_t = kid_b.position
+	kid_g = Node3D.new()
+	add_child(kid_g)
+	var mg2 := _model("res://assets/girl.glb", 1.55)
+	if mg2:
+		kid_g.add_child(mg2)
+		_anim_setup(mg2, true)
+	kid_g.position = Vector3(-4, 0, 10)
+	kid_g_t = kid_g.position
+
+func _kid_walk(n: Node3D, target: Vector3, speed: float, delta: float) -> Vector3:
+	if n.position.distance_to(target) < 0.4:
+		return _roam_spot()
+	var dir := (target - n.position).normalized()
+	n.position += dir * delta * speed
+	n.look_at(n.position + dir)
+	n.rotate_y(PI)
+	return target
 
 func _roam_spot() -> Vector3:
 	for i in range(12):
@@ -945,13 +992,20 @@ func _process(delta: float) -> void:
 		fd.y = 0
 		if fd.length() < 0.4:
 			farmer.position.y = 0
+			if farmer_ap:
+				farmer_ap.pause()
 			_farmer_arrived()
 		else:
+			if farmer_ap and not farmer_ap.is_playing():
+				farmer_ap.play(farmer_ap.get_animation_list()[0])
 			var fdir := fd.normalized()
 			farmer.position += fdir * delta * 3.2
-			farmer.position.y = abs(sin(Time.get_ticks_msec() / 70.0)) * 0.07
 			farmer.look_at(farmer.position + fdir)
 			farmer.rotate_y(PI)
+	elif farmer_ap and farmer_ap.is_playing():
+		farmer_ap.pause()
+	kid_b_t = _kid_walk(kid_b, kid_b_t, 1.15, delta)
+	kid_g_t = _kid_walk(kid_g, kid_g_t, 1.05, delta)
 	chick_target = _walk(chicken, chick_target, 1.1, 90.0, delta)
 	goat_target = _walk(goat, goat_target, 0.8, 130.0, delta)
 	donkey_target = _walk(donkey, donkey_target, 0.55, 170.0, delta)
