@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.3 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.4 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -57,7 +57,16 @@ var luzzu: Node3D
 var clouds: Array = []
 var butterflies: Array = []
 var farmer: Node3D
-var farmer_ap: AnimationPlayer
+var farmer_ap: AnimationPlayer            # walk
+var farmer_idle_ap: AnimationPlayer
+var farmer_harv_ap: AnimationPlayer
+var farmer_walk_n: Node3D
+var farmer_idle_n: Node3D
+var farmer_harv_n: Node3D
+var chr := ""                             # "m" | "f" — chosen at join
+var chr_panel: PanelContainer
+var other: Node3D                          # the character you didn't pick wanders
+var other_t := Vector3.ZERO
 var kid_b: Node3D
 var kid_b_t := Vector3.ZERO
 var kid_g: Node3D
@@ -76,7 +85,6 @@ func _ready() -> void:
 	_build_camera_and_light()
 	_build_ui()
 	_build_animals()
-	_build_farmer()
 	_build_kids()
 	_load()
 
@@ -399,7 +407,7 @@ func _build_ui() -> void:
 	xrow.add_child(xp_bar)
 	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.3"
+	title.text = "🥟 Pastizzi Farm  v2.4"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -468,6 +476,45 @@ func _build_ui() -> void:
 	_pick_tool("plot")
 	_refresh_seed_buttons()
 	_update_coins()
+	# character select (shown at join until chosen)
+	chr_panel = PanelContainer.new()
+	_panel_style(chr_panel)
+	chr_panel.set_anchors_preset(Control.PRESET_CENTER)
+	chr_panel.offset_left = -150
+	chr_panel.offset_right = 150
+	chr_panel.offset_top = -120
+	chr_panel.offset_bottom = 120
+	ui.add_child(chr_panel)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	chr_panel.add_child(vb)
+	var ct := Label.new()
+	ct.text = "🥟 Choose your farmer!"
+	ct.add_theme_font_size_override("font_size", 20)
+	ct.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(ct)
+	var bb := Button.new()
+	bb.text = "👨‍🌾  BOY"
+	bb.add_theme_font_size_override("font_size", 22)
+	bb.custom_minimum_size = Vector2(0, 56)
+	bb.pressed.connect(_choose_chr.bind("m"))
+	_btn_style(bb, false)
+	vb.add_child(bb)
+	var gb2 := Button.new()
+	gb2.text = "👩‍🌾  GIRL"
+	gb2.add_theme_font_size_override("font_size", 22)
+	gb2.custom_minimum_size = Vector2(0, 56)
+	gb2.pressed.connect(_choose_chr.bind("f"))
+	_btn_style(gb2, false)
+	vb.add_child(gb2)
+	chr_panel.visible = true
+
+func _choose_chr(c: String) -> void:
+	chr = c
+	chr_panel.visible = false
+	_build_farmer()
+	hint_label.text = "🎉 Welcome to your għalqa! Grab the ⛏️ Hoe and till your first patch."
+	_save()
 
 func _pick_tool(t: String) -> void:
 	tool = t
@@ -757,10 +804,13 @@ func _tap(screen_pos: Vector2) -> void:
 	return
 
 func _send_farmer(tile: Vector2i, act: String) -> void:
+	if not farmer:
+		hint_label.text = "Pick your farmer first! 👨‍🌾👩‍🌾"
+		return
 	farmer_dest = _tile_pos(tile) + Vector3(1.4, 0, 1.4)
 	farmer_act = { "a": act, "tile": tile }
 	farmer_busy = true
-	hint_label.text = "👴 In-Nannu is on his way…"
+	hint_label.text = "🚶 On the way…"
 
 func _farmer_arrived() -> void:
 	var act: String = farmer_act.get("a", "")
@@ -909,14 +959,58 @@ func _build_animals() -> void:
 	dog.position = Vector3(-9, 0, 9)
 
 func _build_farmer() -> void:
+	if chr == "":
+		return
+	if farmer:
+		farmer.queue_free()
+	if other:
+		other.queue_free()
 	farmer = Node3D.new()
 	add_child(farmer)
-	var mf := _model("res://assets/farmer_walk.glb", 2.0)
-	if mf:
-		farmer.add_child(mf)
-		farmer_ap = _anim_setup(mf, false)
+	var base := "man" if chr == "m" else "woman"
+	farmer_walk_n = _model("res://assets/%s_walk.glb" % base, 1.9)
+	if farmer_walk_n:
+		farmer.add_child(farmer_walk_n)
+		farmer_ap = _anim_setup(farmer_walk_n, false)
+		farmer_walk_n.visible = false
+	farmer_idle_n = _model("res://assets/%s_idle.glb" % base, 1.9)
+	if farmer_idle_n:
+		farmer.add_child(farmer_idle_n)
+		farmer_idle_ap = _anim_setup(farmer_idle_n, true)
+	farmer_harv_n = null
+	farmer_harv_ap = null
+	if chr == "m":
+		farmer_harv_n = _model("res://assets/man_harvest.glb", 1.9)
+		if farmer_harv_n:
+			farmer.add_child(farmer_harv_n)
+			farmer_harv_ap = _anim_setup(farmer_harv_n, false)
+			farmer_harv_n.visible = false
 	farmer.position = Vector3(-7.5, 0, -7.5)
 	farmer_dest = farmer.position
+	# the other one strolls the farm
+	other = Node3D.new()
+	add_child(other)
+	var ob := "woman" if chr == "m" else "man"
+	var om := _model("res://assets/%s_walk.glb" % ob, 1.9)
+	if om:
+		other.add_child(om)
+		_anim_setup(om, true)
+	other.position = Vector3(6, 0, 9)
+	other_t = other.position
+
+func _worker_mode(mode: String) -> void:
+	if farmer_walk_n:
+		farmer_walk_n.visible = mode == "walk"
+	if farmer_idle_n:
+		farmer_idle_n.visible = mode == "idle"
+	if farmer_harv_n:
+		farmer_harv_n.visible = mode == "harv"
+	if mode == "walk" and farmer_ap and not farmer_ap.is_playing():
+		farmer_ap.play(farmer_ap.get_animation_list()[0])
+	if mode == "idle" and farmer_idle_ap and not farmer_idle_ap.is_playing():
+		farmer_idle_ap.play(farmer_idle_ap.get_animation_list()[0])
+	if mode == "harv" and farmer_harv_ap:
+		farmer_harv_ap.play(farmer_harv_ap.get_animation_list()[0])
 
 func _build_kids() -> void:
 	kid_b = Node3D.new()
@@ -987,23 +1081,32 @@ func _process(delta: float) -> void:
 			elif k > 0.25:
 				e.node.rotation.z = sin(Time.get_ticks_msec() / 420.0 + float(tile.x) * 1.7 + float(tile.y)) * 0.05
 			e.node.scale = Vector3(ms, ms, ms)
-	if farmer_busy:
+	if farmer and farmer_busy:
 		var fd := farmer_dest - farmer.position
 		fd.y = 0
 		if fd.length() < 0.4:
 			farmer.position.y = 0
-			if farmer_ap:
-				farmer_ap.pause()
-			_farmer_arrived()
+			if farmer_act.get("a", "") == "harvest" and farmer_harv_ap:
+				_worker_mode("harv")
+				var held: Dictionary = farmer_act
+				farmer_act = {}
+				farmer_busy = false
+				var tw := create_tween()
+				tw.tween_interval(0.9)
+				tw.tween_callback(func():
+					_do_action(held.tile, "harvest")
+					_worker_mode("idle"))
+			else:
+				_worker_mode("idle")
+				_farmer_arrived()
 		else:
-			if farmer_ap and not farmer_ap.is_playing():
-				farmer_ap.play(farmer_ap.get_animation_list()[0])
+			_worker_mode("walk")
 			var fdir := fd.normalized()
 			farmer.position += fdir * delta * 3.2
 			farmer.look_at(farmer.position + fdir)
 			farmer.rotate_y(PI)
-	elif farmer_ap and farmer_ap.is_playing():
-		farmer_ap.pause()
+	if other:
+		other_t = _kid_walk(other, other_t, 0.9, delta)
 	kid_b_t = _kid_walk(kid_b, kid_b_t, 1.15, delta)
 	kid_g_t = _kid_walk(kid_g, kid_g_t, 1.05, delta)
 	chick_target = _walk(chicken, chick_target, 1.1, 90.0, delta)
@@ -1077,7 +1180,7 @@ func _save() -> void:
 	for tile in grid:
 		var e: Dictionary = grid[tile]
 		tiles["%d,%d" % [tile.x, tile.y]] = { "k": e.k, "c": e.c, "t": e.t, "rg": e.rg }
-	var d := { "v": 2, "coins": coins, "hl": house_lvl, "z2": zone2, "xp": xp, "lvl": lvl, "tiles": tiles }
+	var d := { "v": 2, "coins": coins, "hl": house_lvl, "z2": zone2, "xp": xp, "lvl": lvl, "chr": chr, "tiles": tiles }
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(d))
@@ -1092,6 +1195,10 @@ func _load() -> void:
 	if d == null:
 		return
 	coins = int(d.get("coins", 120))
+	chr = str(d.get("chr", ""))
+	if chr != "":
+		chr_panel.visible = false
+		_build_farmer()
 	xp = int(d.get("xp", 0))
 	lvl = int(d.get("lvl", 1))
 	_refresh_xp()
