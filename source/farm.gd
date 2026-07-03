@@ -1,16 +1,16 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.1 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.2 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
 
 const TILE := 2.2
 const CROPS := [
-	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "mins": 2.0,  "seed": 10, "pay": 25,  "model": "res://assets/tomato.glb",     "h": 1.5 },
-	{ "id": "frawli", "name": "Frawli", "e": "🍓", "mins": 5.0,  "seed": 20, "pay": 55,  "model": "res://assets/strawberry.glb", "h": 1.3 },
-	{ "id": "laring", "name": "Larinġ", "e": "🍊", "mins": 8.0,  "seed": 35, "pay": 95,  "model": "res://assets/orange.glb",     "h": 2.5, "tree": true },
-	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb",    "h": 1.7 },
-	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb",       "h": 2.3, "tree": true },
+	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "mins": 2.0,  "seed": 10, "pay": 25,  "model": "res://assets/tomato.glb",     "h": 1.5, "lvl": 1 },
+	{ "id": "frawli", "name": "Frawli", "e": "🍓", "mins": 5.0,  "seed": 20, "pay": 55,  "model": "res://assets/strawberry.glb", "h": 1.3, "lvl": 2 },
+	{ "id": "laring", "name": "Larinġ", "e": "🍊", "mins": 8.0,  "seed": 35, "pay": 95,  "model": "res://assets/orange.glb",     "h": 2.5, "tree": true, "lvl": 4 },
+	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb",    "h": 1.7, "lvl": 6 },
+	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb",       "h": 2.3, "tree": true, "lvl": 8 },
 ]
 const PATCH_COST := 25
 const SAVE_PATH := "user://farm2.json"
@@ -56,6 +56,14 @@ var dog: Node3D
 var luzzu: Node3D
 var clouds: Array = []
 var butterflies: Array = []
+var farmer: Node3D
+var farmer_dest := Vector3.ZERO
+var farmer_act := {}                  # {type, tile} — runs when nannu arrives
+var farmer_busy := false
+var xp := 0
+var lvl := 1
+var xp_bar: ProgressBar
+var lvl_label: Label
 
 func _ready() -> void:
 	_build_world()
@@ -63,6 +71,7 @@ func _ready() -> void:
 	_build_camera_and_light()
 	_build_ui()
 	_build_animals()
+	_build_farmer()
 	_load()
 
 # ================= helpers =================
@@ -347,8 +356,31 @@ func _build_ui() -> void:
 	coins_label = Label.new()
 	coins_label.add_theme_font_size_override("font_size", 24)
 	chip.add_child(coins_label)
+	var xchip := PanelContainer.new()
+	_panel_style(xchip)
+	xchip.position = Vector2(14, 74)
+	ui.add_child(xchip)
+	var xrow := HBoxContainer.new()
+	xrow.add_theme_constant_override("separation", 8)
+	xchip.add_child(xrow)
+	lvl_label = Label.new()
+	lvl_label.add_theme_font_size_override("font_size", 16)
+	xrow.add_child(lvl_label)
+	xp_bar = ProgressBar.new()
+	xp_bar.custom_minimum_size = Vector2(110, 14)
+	xp_bar.show_percentage = false
+	var xbg := StyleBoxFlat.new()
+	xbg.bg_color = Color(0.25, 0.15, 0.08)
+	xbg.set_corner_radius_all(7)
+	var xfg := StyleBoxFlat.new()
+	xfg.bg_color = Color(0.95, 0.75, 0.25)
+	xfg.set_corner_radius_all(7)
+	xp_bar.add_theme_stylebox_override("background", xbg)
+	xp_bar.add_theme_stylebox_override("fill", xfg)
+	xrow.add_child(xp_bar)
+	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.1"
+	title.text = "🥟 Pastizzi Farm  v2.2"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -415,6 +447,7 @@ func _build_ui() -> void:
 		seed_btns.append(b)
 	_pick_seed(0)
 	_pick_tool("plot")
+	_refresh_seed_buttons()
 	_update_coins()
 
 func _pick_tool(t: String) -> void:
@@ -460,6 +493,42 @@ func _upgrade_house() -> void:
 	_burst(Vector3(-9.3, 1.5, -9.3), Color(1, 0.85, 0.3), 10)
 	hint_label.text = "🏠 The razzett grows — all prices +10%!"
 	_save()
+
+func _xp_need() -> int:
+	return 30 * lvl
+
+func _gain_xp(n: int) -> void:
+	xp += n
+	while xp >= _xp_need():
+		xp -= _xp_need()
+		lvl += 1
+		confetti_lvl()
+	_refresh_xp()
+	_refresh_seed_buttons()
+
+func confetti_lvl() -> void:
+	_burst(farmer.position if farmer else Vector3.ZERO, Color(1, 0.85, 0.3), 12)
+	_float_text(farmer.position if farmer else Vector3.ZERO, "LEVEL %d!" % lvl, Color(1, 0.9, 0.4))
+	hint_label.text = "🎉 LEVEL %d! New things unlock as you grow." % lvl
+
+func _refresh_xp() -> void:
+	if xp_bar:
+		xp_bar.max_value = _xp_need()
+		xp_bar.value = xp
+	if lvl_label:
+		lvl_label.text = "Lv %d" % lvl
+
+func _refresh_seed_buttons() -> void:
+	for i in range(seed_btns.size()):
+		var c: Dictionary = CROPS[i]
+		var need: int = c.get("lvl", 1)
+		var tree_tag := " 🌳" if c.get("tree", false) else ""
+		if lvl < need:
+			seed_btns[i].text = "🔒 Lv%d\n%s %s" % [need, c.e, c.name]
+			seed_btns[i].disabled = true
+		else:
+			seed_btns[i].text = "%s %s\n🪙%d · %sm%s" % [c.e, c.name, c.seed, str(c.mins), tree_tag]
+			seed_btns[i].disabled = false
 
 func _mult() -> float:
 	return 1.0 + 0.1 * float(house_lvl - 1)
@@ -648,7 +717,44 @@ func _tap(screen_pos: Vector2) -> void:
 	if not _tile_in_land(tile):
 		return
 	var e: Dictionary = grid.get(tile, {})
+	# in-Nannu walks to the tile, then does the work
 	if not e.is_empty() and e.c >= 0 and _k_of(e.c, e.t, e.rg) >= 1.0:
+		_send_farmer(tile, "harvest")
+		return
+	match tool:
+		"plot":
+			if not e.is_empty():
+				hint_label.text = "That tile is taken — pick an empty one."
+				return
+			_send_farmer(tile, "plot")
+		"seed":
+			_send_farmer(tile, "seed_%d" % sel_crop)
+		"water":
+			_send_farmer(tile, "water")
+		"shovel":
+			if e.is_empty():
+				return
+			_send_farmer(tile, "shovel")
+	return
+
+func _send_farmer(tile: Vector2i, act: String) -> void:
+	farmer_dest = _tile_pos(tile) + Vector3(1.4, 0, 1.4)
+	farmer_act = { "a": act, "tile": tile }
+	farmer_busy = true
+	hint_label.text = "👴 In-Nannu is on his way…"
+
+func _farmer_arrived() -> void:
+	var act: String = farmer_act.get("a", "")
+	var tile: Vector2i = farmer_act.get("tile", Vector2i.ZERO)
+	farmer_act = {}
+	farmer_busy = false
+	_do_action(tile, act)
+
+func _do_action(tile: Vector2i, act: String) -> void:
+	var e: Dictionary = grid.get(tile, {})
+	if act == "harvest":
+		if e.is_empty() or e.c < 0 or _k_of(e.c, e.t, e.rg) < 1.0:
+			return
 		var crop: Dictionary = CROPS[e.c]
 		var pay := int(round(crop.pay * _mult()))
 		coins += pay
@@ -671,9 +777,14 @@ func _tap(screen_pos: Vector2) -> void:
 			e.t = 0.0
 			grid[tile] = e
 			hint_label.text = "Harvested %s — +%d coins!" % [crop.name, pay]
+		_gain_xp(4 if e.k == "tree" else 3)
 		_save()
 		return
-	match tool:
+	var act_tool := act
+	if act.begins_with("seed_"):
+		sel_crop = int(act.substr(5))
+		act_tool = "seed"
+	match act_tool:
 		"plot":
 			if not e.is_empty():
 				hint_label.text = "That tile is taken — pick an empty one."
@@ -684,9 +795,13 @@ func _tap(screen_pos: Vector2) -> void:
 			_place_patch(tile)
 			_burst(_tile_pos(tile), Color(0.5, 0.35, 0.2), 5)
 			hint_label.text = "⛏️ Tilled! Switch to 🌱 Seeds to plant it."
+			_gain_xp(2)
 			_save()
 		"seed":
 			var crop: Dictionary = CROPS[sel_crop]
+			if lvl < crop.get("lvl", 1):
+				hint_label.text = "🔒 %s unlocks at level %d — keep farming!" % [crop.name, crop.get("lvl", 1)]
+				return
 			if crop.get("tree", false):
 				if not e.is_empty():
 					hint_label.text = "🌳 Trees need an empty GRASS tile (no patch)."
@@ -699,6 +814,7 @@ func _tap(screen_pos: Vector2) -> void:
 				_plant_at(tile, sel_crop, Time.get_unix_time_from_system())
 				_burst(_tile_pos(tile), Color(0.5, 0.35, 0.2), 5)
 				hint_label.text = "%s tree planted — it will produce forever! 🌳" % crop.name
+				_gain_xp(2)
 				_save()
 			else:
 				if e.is_empty() or e.get("k") != "patch":
@@ -715,6 +831,7 @@ func _tap(screen_pos: Vector2) -> void:
 				_plant_at(tile, sel_crop, Time.get_unix_time_from_system())
 				_burst(_tile_pos(tile), Color(0.5, 0.35, 0.2), 3)
 				hint_label.text = "%s %s planted — %s min" % [crop.e, crop.name, str(crop.mins)]
+				_gain_xp(1)
 				_save()
 		"water":
 			if e.is_empty() or e.c < 0 or _k_of(e.c, e.t, e.rg) >= 1.0:
@@ -732,6 +849,7 @@ func _tap(screen_pos: Vector2) -> void:
 			_burst(_tile_pos(tile), Color(0.4, 0.7, 1.0), 6)
 			_float_text(_tile_pos(tile), "🚿 -25%", Color(0.55, 0.8, 1))
 			hint_label.text = "Watered — 25% faster!"
+			_gain_xp(1)
 			_save()
 		"shovel":
 			if e.is_empty():
@@ -770,6 +888,15 @@ func _build_animals() -> void:
 	if mdg:
 		dog.add_child(mdg)
 	dog.position = Vector3(-9, 0, 9)
+
+func _build_farmer() -> void:
+	farmer = Node3D.new()
+	add_child(farmer)
+	var mf := _model("res://assets/farmer.glb", 2.0)
+	if mf:
+		farmer.add_child(mf)
+	farmer.position = Vector3(-7.5, 0, -7.5)
+	farmer_dest = farmer.position
 
 func _roam_spot() -> Vector3:
 	for i in range(12):
@@ -813,6 +940,18 @@ func _process(delta: float) -> void:
 			elif k > 0.25:
 				e.node.rotation.z = sin(Time.get_ticks_msec() / 420.0 + float(tile.x) * 1.7 + float(tile.y)) * 0.05
 			e.node.scale = Vector3(ms, ms, ms)
+	if farmer_busy:
+		var fd := farmer_dest - farmer.position
+		fd.y = 0
+		if fd.length() < 0.4:
+			farmer.position.y = 0
+			_farmer_arrived()
+		else:
+			var fdir := fd.normalized()
+			farmer.position += fdir * delta * 3.2
+			farmer.position.y = abs(sin(Time.get_ticks_msec() / 70.0)) * 0.07
+			farmer.look_at(farmer.position + fdir)
+			farmer.rotate_y(PI)
 	chick_target = _walk(chicken, chick_target, 1.1, 90.0, delta)
 	goat_target = _walk(goat, goat_target, 0.8, 130.0, delta)
 	donkey_target = _walk(donkey, donkey_target, 0.55, 170.0, delta)
@@ -884,7 +1023,7 @@ func _save() -> void:
 	for tile in grid:
 		var e: Dictionary = grid[tile]
 		tiles["%d,%d" % [tile.x, tile.y]] = { "k": e.k, "c": e.c, "t": e.t, "rg": e.rg }
-	var d := { "v": 2, "coins": coins, "hl": house_lvl, "z2": zone2, "tiles": tiles }
+	var d := { "v": 2, "coins": coins, "hl": house_lvl, "z2": zone2, "xp": xp, "lvl": lvl, "tiles": tiles }
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(d))
@@ -899,6 +1038,10 @@ func _load() -> void:
 	if d == null:
 		return
 	coins = int(d.get("coins", 120))
+	xp = int(d.get("xp", 0))
+	lvl = int(d.get("lvl", 1))
+	_refresh_xp()
+	_refresh_seed_buttons()
 	house_lvl = int(d.get("hl", 1))
 	_house_extras()
 	_refresh_up_btn()
