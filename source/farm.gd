@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.8 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.9 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -12,12 +12,16 @@ const CROPS := [
 	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb",    "h": 1.7, "lvl": 6 },
 	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb",       "h": 2.3, "tree": true, "lvl": 8 },
 ]
-const PATCH_COST := 25
-const SAVE_PATH := "user://farm2.json"
+func _patch_cost() -> int:
+	if placed < 3:
+		return 0
+	return 75 * (placed - 2)   # 4th=75, 5th=150, 6th=225…
+const SAVE_PATH := "user://farm3.json"
 const DAY_SECONDS := 180.0
 const HOUSE_COSTS := [0, 400, 900]
 
-var coins := 120
+var coins := 50
+var placed := 0                      # lifetime patches placed (3 free, then pay)
 var grid := {}                        # Vector2i -> {k:"patch"/"tree", c, t, rg, node, soil, mark}
 var tool := "plot"                    # plot | seed | water | shovel
 var sel_crop := 0
@@ -407,7 +411,7 @@ func _build_ui() -> void:
 	xrow.add_child(xp_bar)
 	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.8"
+	title.text = "🥟 Pastizzi Farm  v2.9"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -446,7 +450,7 @@ func _build_ui() -> void:
 	tbar.offset_right = -12
 	tbar.add_theme_constant_override("separation", 8)
 	ui.add_child(tbar)
-	for t in [["plot", "⛏️ Hoe 🪙25"], ["seed", "🌱 Seeds"], ["water", "🚿 Water 🪙5"], ["shovel", "🧹 Shovel"]]:
+	for t in [["plot", "⛏️ Hoe"], ["seed", "🌱 Seeds"], ["water", "🚿 Water 🪙5"], ["shovel", "🧹 Shovel"]]:
 		var tb := Button.new()
 		tb.text = t[1]
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -516,14 +520,21 @@ func _choose_chr(c: String) -> void:
 	hint_label.text = "🎉 Welcome to your għalqa! Grab the ⛏️ Hoe and till your first patch."
 	_save()
 
+func _refresh_hoe_label() -> void:
+	for pb in tool_btns:
+		if pb[0] == "plot":
+			var c := _patch_cost()
+			pb[1].text = "⛏️ Hoe FREE (%d left)" % (3 - placed) if placed < 3 else "⛏️ Hoe 🪙%d" % c
+
 func _pick_tool(t: String) -> void:
 	tool = t
 	for pb in tool_btns:
 		_btn_style(pb[1], pb[0] == t)
 	seed_bar.visible = (t == "seed")
 	grid_overlay.visible = (t == "plot")
+	_refresh_hoe_label()
 	hint_label.text = {
-		"plot": "⛏️ HOE: tap any grass tile to till it into soil (🪙%d) — one tile at a time, anywhere you like" % PATCH_COST,
+		"plot": "⛏️ HOE: tap any grass tile to till it — first 3 spots FREE, then buy more soil land!",
 		"seed": "🌱 Pick a seed, tap tilled soil (🌳 trees plant on empty grass)",
 		"water": "🚿 Tap a growing crop — 🪙5 cuts 25% of the wait",
 		"shovel": "🧹 Tap to dig out a crop or an empty patch",
@@ -626,8 +637,10 @@ func _k_of(cidx: int, t: float, rg: bool) -> float:
 
 func _place_patch(tile: Vector2i, pay: bool = true) -> void:
 	if pay:
-		coins -= PATCH_COST
+		coins -= _patch_cost()
+		placed += 1
 		_update_coins()
+		_refresh_hoe_label()
 	var soil := _box(Vector3(TILE * 0.94, 0.12, TILE * 0.94), _tile_pos(tile) + Vector3(0, 0.06, 0), Color(1, 1, 1))
 	soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
 	grid[tile] = { "k": "patch", "c": -1, "t": 0.0, "rg": false, "node": null, "soil": soil, "mark": null }
@@ -858,8 +871,9 @@ func _do_action(tile: Vector2i, act: String) -> void:
 			if not e.is_empty():
 				hint_label.text = "That tile is taken — pick an empty one."
 				return
-			if coins < PATCH_COST:
-				hint_label.text = "Tilling costs 🪙%d!" % PATCH_COST
+			var pcost := _patch_cost()
+			if coins < pcost:
+				hint_label.text = "More soil land costs 🪙%d — sell some harvest first!" % pcost
 				return
 			_place_patch(tile)
 			_burst(_tile_pos(tile), Color(0.5, 0.35, 0.2), 5)
@@ -977,11 +991,17 @@ func _build_farmer() -> void:
 	if farmer_idle_n:
 		farmer.add_child(farmer_idle_n)
 		farmer_idle_ap = _anim_setup(farmer_idle_n, true)
+		if farmer_walk_n:
+			farmer_idle_n.scale = farmer_walk_n.scale
+			farmer_idle_n.position.y = farmer_walk_n.position.y
 	farmer_harv_n = _model("res://assets/%s_harvest.glb" % base, 1.9)
 	if farmer_harv_n:
 		farmer.add_child(farmer_harv_n)
 		farmer_harv_ap = _anim_setup(farmer_harv_n, false)
 		farmer_harv_n.visible = false
+		if farmer_walk_n:
+			farmer_harv_n.scale = farmer_walk_n.scale
+			farmer_harv_n.position.y = farmer_walk_n.position.y
 	farmer.position = Vector3(-7.5, 0, -7.5)
 	farmer_dest = farmer.position
 	# the other one strolls the farm
@@ -1177,7 +1197,7 @@ func _save() -> void:
 	for tile in grid:
 		var e: Dictionary = grid[tile]
 		tiles["%d,%d" % [tile.x, tile.y]] = { "k": e.k, "c": e.c, "t": e.t, "rg": e.rg }
-	var d := { "v": 2, "coins": coins, "hl": house_lvl, "z2": zone2, "xp": xp, "lvl": lvl, "chr": chr, "tiles": tiles }
+	var d := { "v": 3, "coins": coins, "pl": placed, "hl": house_lvl, "z2": zone2, "xp": xp, "lvl": lvl, "chr": chr, "tiles": tiles }
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(d))
@@ -1191,7 +1211,8 @@ func _load() -> void:
 	var d = JSON.parse_string(f.get_as_text())
 	if d == null:
 		return
-	coins = int(d.get("coins", 120))
+	coins = int(d.get("coins", 50))
+	placed = int(d.get("pl", 0))
 	chr = str(d.get("chr", ""))
 	if chr != "":
 		chr_panel.visible = false
