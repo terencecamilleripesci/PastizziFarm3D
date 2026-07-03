@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.0 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.1 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -348,7 +348,7 @@ func _build_ui() -> void:
 	coins_label.add_theme_font_size_override("font_size", 24)
 	chip.add_child(coins_label)
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.0"
+	title.text = "🥟 Pastizzi Farm  v2.1"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -387,7 +387,7 @@ func _build_ui() -> void:
 	tbar.offset_right = -12
 	tbar.add_theme_constant_override("separation", 8)
 	ui.add_child(tbar)
-	for t in [["plot", "🟫 Plot 🪙25"], ["seed", "🌱 Seeds"], ["water", "🚿 Water 🪙5"], ["shovel", "🧹 Shovel"]]:
+	for t in [["plot", "⛏️ Hoe 🪙25"], ["seed", "🌱 Seeds"], ["water", "🚿 Water 🪙5"], ["shovel", "🧹 Shovel"]]:
 		var tb := Button.new()
 		tb.text = t[1]
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -424,8 +424,8 @@ func _pick_tool(t: String) -> void:
 	seed_bar.visible = (t == "seed")
 	grid_overlay.visible = (t == "plot")
 	hint_label.text = {
-		"plot": "🟫 Tap the grid to buy a soil patch (🪙%d) — place them ANYWHERE" % PATCH_COST,
-		"seed": "🌱 Pick a seed, tap one of your patches (🌳 trees plant on empty grass)",
+		"plot": "⛏️ HOE: tap any grass tile to till it into soil (🪙%d) — one tile at a time, anywhere you like" % PATCH_COST,
+		"seed": "🌱 Pick a seed, tap tilled soil (🌳 trees plant on empty grass)",
 		"water": "🚿 Tap a growing crop — 🪙5 cuts 25% of the wait",
 		"shovel": "🧹 Tap to dig out a crop or an empty patch",
 	}[t]
@@ -496,6 +496,19 @@ func _place_patch(tile: Vector2i, pay: bool = true) -> void:
 	var soil := _box(Vector3(TILE * 0.94, 0.12, TILE * 0.94), _tile_pos(tile) + Vector3(0, 0.06, 0), Color(1, 1, 1))
 	soil.material_override = _tmat("res://assets/tex_soil.png", 1.0)
 	grid[tile] = { "k": "patch", "c": -1, "t": 0.0, "rg": false, "node": null, "soil": soil, "mark": null }
+	if pay:   # tilling feel: the soil flips up out of the grass + clods fly
+		soil.scale = Vector3(0.2, 0.05, 0.2)
+		var tw := create_tween()
+		tw.tween_property(soil, "scale", Vector3(1.06, 1.3, 1.06), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(soil, "scale", Vector3(1, 1, 1), 0.12)
+		for i in range(4):
+			var clod := _box(Vector3(0.16, 0.12, 0.16), _tile_pos(tile) + Vector3(0, 0.25, 0), Color(0.45, 0.3, 0.17))
+			clod.rotation_degrees = Vector3(randf_range(0, 90), randf_range(0, 90), 0)
+			var tw2 := create_tween()
+			tw2.set_parallel(true)
+			tw2.tween_property(clod, "position", clod.position + Vector3(randf_range(-1.0, 1.0), randf_range(0.7, 1.3), randf_range(-1.0, 1.0)), 0.4)
+			tw2.tween_property(clod, "scale", Vector3.ZERO, 0.45)
+			tw2.chain().tween_callback(clod.queue_free)
 
 func _plant_at(tile: Vector2i, cidx: int, t: float, rg: bool = false) -> void:
 	var crop: Dictionary = CROPS[cidx]
@@ -666,11 +679,11 @@ func _tap(screen_pos: Vector2) -> void:
 				hint_label.text = "That tile is taken — pick an empty one."
 				return
 			if coins < PATCH_COST:
-				hint_label.text = "A patch costs 🪙%d!" % PATCH_COST
+				hint_label.text = "Tilling costs 🪙%d!" % PATCH_COST
 				return
 			_place_patch(tile)
 			_burst(_tile_pos(tile), Color(0.5, 0.35, 0.2), 5)
-			hint_label.text = "🟫 Patch laid — switch to 🌱 Seeds!"
+			hint_label.text = "⛏️ Tilled! Switch to 🌱 Seeds to plant it."
 			_save()
 		"seed":
 			var crop: Dictionary = CROPS[sel_crop]
@@ -689,7 +702,7 @@ func _tap(screen_pos: Vector2) -> void:
 				_save()
 			else:
 				if e.is_empty() or e.get("k") != "patch":
-					hint_label.text = "Field crops need a 🟫 patch — lay one first!"
+					hint_label.text = "Field crops need tilled soil — use the ⛏️ Hoe first!"
 					return
 				if e.c >= 0:
 					hint_label.text = "This patch is busy — it's growing."
