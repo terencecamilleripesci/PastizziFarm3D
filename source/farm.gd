@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.4 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.5 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -407,7 +407,7 @@ func _build_ui() -> void:
 	xrow.add_child(xp_bar)
 	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.4"
+	title.text = "🥟 Pastizzi Farm  v2.5"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -977,14 +977,11 @@ func _build_farmer() -> void:
 	if farmer_idle_n:
 		farmer.add_child(farmer_idle_n)
 		farmer_idle_ap = _anim_setup(farmer_idle_n, true)
-	farmer_harv_n = null
-	farmer_harv_ap = null
-	if chr == "m":
-		farmer_harv_n = _model("res://assets/man_harvest.glb", 1.9)
-		if farmer_harv_n:
-			farmer.add_child(farmer_harv_n)
-			farmer_harv_ap = _anim_setup(farmer_harv_n, false)
-			farmer_harv_n.visible = false
+	farmer_harv_n = _model("res://assets/%s_harvest.glb" % base, 1.9)
+	if farmer_harv_n:
+		farmer.add_child(farmer_harv_n)
+		farmer_harv_ap = _anim_setup(farmer_harv_n, false)
+		farmer_harv_n.visible = false
 	farmer.position = Vector3(-7.5, 0, -7.5)
 	farmer_dest = farmer.position
 	# the other one strolls the farm
