@@ -7,7 +7,7 @@ const CROPS := [
 	{ "id": "tadam",  "name": "Tadam",  "e": "🍅", "color": Color(0.86, 0.22, 0.16), "mins": 2.0,  "seed": 10, "pay": 25, "model": "res://assets/tomato.glb", "h": 1.7, "per": 9 },
 	{ "id": "frawli", "name": "Frawli", "e": "🍓", "color": Color(0.93, 0.30, 0.44), "mins": 5.0,  "seed": 20, "pay": 55, "model": "res://assets/strawberry.glb", "h": 1.4, "per": 9 },
 	{ "id": "laring", "name": "Larinġ", "e": "🍊", "color": Color(0.98, 0.60, 0.12), "mins": 8.0,  "seed": 35, "pay": 95, "model": "res://assets/orange.glb", "h": 2.6, "per": 1, "tree": true },
-	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb", "h": 1.9, "per": 3 },
+	{ "id": "qargha", "name": "Qargħa", "e": "🎃", "color": Color(0.90, 0.48, 0.10), "mins": 12.0, "seed": 50, "pay": 150, "model": "res://assets/pumpkin.glb", "h": 1.9, "per": 9 },
 	{ "id": "gheneb", "name": "Għeneb", "e": "🍇", "color": Color(0.48, 0.24, 0.60), "mins": 20.0, "seed": 80, "pay": 260, "model": "res://assets/vine.glb", "h": 2.5, "per": 1, "tree": true },
 ]
 const SAVE_PATH := "user://farm.json"
@@ -359,7 +359,7 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	add_child(ui)
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm 3D  v1.0.1"
+	title.text = "🥟 Pastizzi Farm 3D  v1.0.2"
 	title.position = Vector2(20, 18)
 	title.add_theme_font_size_override("font_size", 30)
 	ui.add_child(title)
@@ -525,7 +525,7 @@ func _grid_offsets(per: int) -> Array:
 func _spawn_crop(i: int, crop_idx: int, planted: float) -> void:
 	var p: Dictionary = plots[i]
 	var crop: Dictionary = CROPS[crop_idx]
-	var per: int = crop.get("per", 4)
+	var per: int = crop.get("per", 9)
 	var offs := _grid_offsets(per)
 	var holder := Node3D.new()
 	holder.position = p.body.position + Vector3(0, 0.34, 0)   # plants sit ON the soil, not inside it
