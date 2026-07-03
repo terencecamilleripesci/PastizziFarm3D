@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.2 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.2.1 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -309,15 +309,15 @@ func _build_camera_and_light() -> void:
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52, -30, 0)
 	sun.shadow_enabled = true
-	sun.light_color = Color(1, 0.96, 0.86)
+	sun.light_color = Color(1, 0.98, 0.93)
 	add_child(sun)
 	var we := WorldEnvironment.new()
 	env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.53, 0.75, 0.92)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1, 0.97, 0.9)
-	env.ambient_light_energy = 0.75
+	env.ambient_light_color = Color(0.96, 0.96, 0.94)
+	env.ambient_light_energy = 0.55
 	we.environment = env
 	add_child(we)
 
@@ -380,7 +380,7 @@ func _build_ui() -> void:
 	xrow.add_child(xp_bar)
 	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.2"
+	title.text = "🥟 Pastizzi Farm  v2.2.1"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
@@ -1013,9 +1013,9 @@ func _process(delta: float) -> void:
 	var a := day_t * TAU / DAY_SECONDS
 	var daylight := 0.55 + 0.45 * sin(a)
 	sun.rotation_degrees = Vector3(-30.0 - 35.0 * daylight, -30.0 + 15.0 * sin(a * 0.5), 0)
-	sun.light_energy = clamp(0.3 + 1.1 * daylight, 0.3, 1.4)
+	sun.light_energy = clamp(0.35 + 0.65 * daylight, 0.35, 1.0)
 	env.background_color = Color(0.10, 0.14, 0.30).lerp(Color(0.53, 0.75, 0.92), clamp(daylight, 0.0, 1.0))
-	env.ambient_light_energy = 0.3 + 0.5 * daylight
+	env.ambient_light_energy = 0.32 + 0.3 * daylight
 
 # ================= save / load =================
 func _save() -> void:
