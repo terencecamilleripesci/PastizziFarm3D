@@ -1,5 +1,5 @@
 extends Node3D
-# ===== Pastizzi Farm 3D — v2.7 GRID ENGINE (the FarmVille 2 way) =====
+# ===== Pastizzi Farm 3D — v2.8 GRID ENGINE (the FarmVille 2 way) =====
 # The farm is a tile grid. You PLACE soil patches anywhere, plant one crop
 # per patch, trees live on their own tiles and regrow forever.
 # Tools: Plot / Seeds / Water / Shovel. Everything saves on-device.
@@ -407,7 +407,7 @@ func _build_ui() -> void:
 	xrow.add_child(xp_bar)
 	_refresh_xp()
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm  v2.7"
+	title.text = "🥟 Pastizzi Farm  v2.8"
 	title.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	title.offset_left = -240
 	title.offset_top = 70
