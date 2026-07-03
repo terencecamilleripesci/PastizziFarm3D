@@ -239,7 +239,7 @@ func _build_plots() -> void:
 			lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 			lbl.position = pos + Vector3(0, 1.5, 0)
 			add_child(lbl)
-			plots.append({ "body": body, "soil": soil, "lbl": lbl, "locked": true, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+			plots.append({ "body": body, "soil": soil, "lbl": lbl, "locked": true, "slots": [null,null,null,null,null,null,null,null,null], "tree": -1, "tnode": null, "tplanted": 0.0, "trg": false })
 	_apply_owned()
 
 func _apply_owned() -> void:
@@ -262,8 +262,12 @@ func _refresh_plot_labels() -> void:
 		if p.locked:
 			p.lbl.text = "🪙%d" % PLOT_COSTS[i] if i == owned else "🔒"
 			p.lbl.modulate = Color(1, 0.85, 0.35) if i == owned else Color(1, 1, 1, 0.55)
-		elif p.crop < 0:
-			p.lbl.text = "+"
+		elif _bed_free_slot(p) >= 0:
+			var filled := 0
+			for sl in p.slots:
+				if sl != null:
+					filled += 1
+			p.lbl.text = "+" if filled == 0 else "%d/9" % filled
 			p.lbl.modulate = Color(0.75, 1, 0.6, 0.9)
 		else:
 			p.lbl.text = ""
@@ -296,7 +300,7 @@ func _build_zone2() -> void:
 			body.position = pos
 			zone2_node.add_child(body)
 			body.set_meta("plot", plots.size())
-			plots.append({ "body": body, "soil": soil, "lbl": null, "locked": true, "zone2": true, "crop": -1, "node": null, "stem": null, "fruits": [], "planted": 0.0 })
+			plots.append({ "body": body, "soil": soil, "lbl": null, "locked": true, "zone2": true, "slots": [null,null,null,null,null,null,null,null,null], "tree": -1, "tnode": null, "tplanted": 0.0, "trg": false })
 	var wm := _model("res://assets/windmill.glb", 5.0)
 	if wm:
 		zone2_node.add_child(wm)
@@ -359,7 +363,7 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	add_child(ui)
 	var title := Label.new()
-	title.text = "🥟 Pastizzi Farm 3D  v1.0.2"
+	title.text = "🥟 Pastizzi Farm 3D  v1.1"
 	title.position = Vector2(20, 18)
 	title.add_theme_font_size_override("font_size", 30)
 	ui.add_child(title)
@@ -476,7 +480,10 @@ func _float_text(pos: Vector3, txt: String, col: Color) -> void:
 func _save() -> void:
 	var d := { "coins": coins, "owned": owned, "hl": house_lvl, "z2": zone2, "plots": [] }
 	for p in plots:
-		d.plots.append({ "crop": p.crop, "planted": p.planted, "rg": p.get("regrow", false) })
+		var slots_out: Array = []
+		for sl in p.slots:
+			slots_out.append(null if sl == null else { "c": sl.c, "t": sl.t })
+		d.plots.append({ "slots": slots_out, "tree": p.tree, "tt": p.tplanted, "rg": p.trg })
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(d))
@@ -502,113 +509,156 @@ func _load() -> void:
 	var saved: Array = d.get("plots", [])
 	for i in range(min(saved.size(), plots.size())):
 		var s: Dictionary = saved[i]
+		var sl_in: Array = s.get("slots", [])
+		for si in range(min(sl_in.size(), 9)):
+			if sl_in[si] != null and int(sl_in[si].c) >= 0 and int(sl_in[si].c) < CROPS.size():
+				_make_plant(i, si, int(sl_in[si].c), float(sl_in[si].t))
+		var tr := int(s.get("tree", -1))
+		if tr >= 0 and tr < CROPS.size():
+			_make_tree(i, tr, float(s.get("tt", 0)), bool(s.get("rg", false)))
+		# legacy save (single crop per bed) → fill the bed
 		var ci := int(s.get("crop", -1))
 		if ci >= 0 and ci < CROPS.size():
-			_spawn_crop(i, ci, float(s.planted))
-			plots[i].regrow = s.get("rg", false)
+			if CROPS[ci].get("tree", false):
+				_make_tree(i, ci, float(s.get("planted", 0)), bool(s.get("rg", false)))
+			else:
+				for si in range(9):
+					_make_plant(i, si, ci, float(s.get("planted", 0)))
 	_update_coins()
 
 # ---------- crops ----------
-func _grid_offsets(per: int) -> Array:
-	if per >= 9:
-		var out: Array = []
-		for r in range(3):
-			for c in range(3):
-				out.append(Vector3((c - 1) * 1.05, 0, (r - 1) * 1.05))
-		return out
-	if per == 3:
-		return [Vector3(-1.0, 0, -0.6), Vector3(1.0, 0, -0.4), Vector3(0, 0, 0.9)]
-	if per == 4:
-		return [Vector3(-0.8, 0, -0.8), Vector3(0.8, 0, -0.8), Vector3(-0.8, 0, 0.8), Vector3(0.8, 0, 0.8)]
-	return [Vector3.ZERO]
+const SLOT_OFFS := [
+	Vector3(-1.05, 0, -1.05), Vector3(0, 0, -1.05), Vector3(1.05, 0, -1.05),
+	Vector3(-1.05, 0, 0),     Vector3(0, 0, 0),     Vector3(1.05, 0, 0),
+	Vector3(-1.05, 0, 1.05),  Vector3(0, 0, 1.05),  Vector3(1.05, 0, 1.05),
+]
 
-func _spawn_crop(i: int, crop_idx: int, planted: float) -> void:
+func _k_of(cidx: int, t: float, rg: bool) -> float:
+	var mins: float = CROPS[cidx].mins
+	if rg:
+		mins = mins * 0.6
+	var k: float = clamp((Time.get_unix_time_from_system() - t) / (mins * 60.0), 0.0, 1.0)
+	if rg:
+		k = max(k, 0.82)
+	return k
+
+func _make_plant(i: int, si: int, cidx: int, t: float) -> void:
 	var p: Dictionary = plots[i]
-	var crop: Dictionary = CROPS[crop_idx]
-	var per: int = crop.get("per", 9)
-	var offs := _grid_offsets(per)
+	var crop: Dictionary = CROPS[cidx]
 	var holder := Node3D.new()
-	holder.position = p.body.position + Vector3(0, 0.34, 0)   # plants sit ON the soil, not inside it
+	holder.position = p.body.position + Vector3(0, 0.34, 0) + SLOT_OFFS[si]
 	add_child(holder)
-	var fruits: Array = []
-	var uh: float = crop.get("h", 1.5)
-	if per >= 9:
-		uh = uh * 0.55
-	elif per >= 3:
-		uh = uh * 0.75
-	p.is_model = crop.has("model")
-	for off in offs:
-		if p.is_model:
-			var m := _model(crop.model, uh)
-			if m:
-				m.position += off
-				m.rotation_degrees.y = randf_range(0, 360)
-				holder.add_child(m)
-		else:
-			_cyl(0.06, 0.09, uh * 0.6, off + Vector3(0, uh * 0.3, 0), Color(0.3, 0.5, 0.2), holder)
-			var fr := _sphere(0.17, off + Vector3(randf_range(-0.1, 0.1), uh * 0.62, randf_range(-0.1, 0.1)), crop.color, holder)
-			fruits.append(fr)
+	var uh: float = crop.get("h", 1.5) * 0.55
+	if crop.has("model"):
+		var m := _model(crop.model, uh)
+		if m:
+			m.rotation_degrees.y = randf_range(0, 360)
+			holder.add_child(m)
+	else:
+		_cyl(0.06, 0.09, uh * 0.6, Vector3(0, uh * 0.3, 0), Color(0.3, 0.5, 0.2), holder)
+		_sphere(0.17, Vector3(0, uh * 0.62, 0), crop.color, holder)
 	holder.scale = Vector3(0.1, 0.1, 0.1)
-	p.crop = crop_idx
-	p.node = holder
-	p.stem = null
-	p.fruits = fruits
-	p.planted = planted
+	p.slots[si] = { "c": cidx, "t": t, "node": holder }
+
+func _make_tree(i: int, cidx: int, t: float, rg: bool) -> void:
+	var p: Dictionary = plots[i]
+	var crop: Dictionary = CROPS[cidx]
+	var holder := Node3D.new()
+	holder.position = p.body.position + Vector3(0, 0.34, 0)
+	add_child(holder)
+	var m := _model(crop.model, crop.get("h", 2.5))
+	if m:
+		holder.add_child(m)
+	holder.scale = Vector3(0.1, 0.1, 0.1)
+	p.tree = cidx
+	p.tnode = holder
+	p.tplanted = t
+	p.trg = rg
+
+func _bed_free_slot(p: Dictionary) -> int:
+	if p.tree >= 0:
+		return -1
+	for si in range(9):
+		if p.slots[si] == null:
+			return si
+	return -1
+
+func _bed_empty(p: Dictionary) -> bool:
+	if p.tree >= 0:
+		return false
+	for si in range(9):
+		if p.slots[si] != null:
+			return false
+	return true
 
 func _plant(i: int) -> void:
+	var p: Dictionary = plots[i]
 	var crop: Dictionary = CROPS[sel_crop]
 	if coins < crop.seed:
-		hint_label.text = "Not enough coins for %s seeds (🪙%d) — harvest something first!" % [crop.name, crop.seed]
+		hint_label.text = "Not enough coins for %s seeds (🪙%d)!" % [crop.name, crop.seed]
 		return
-	coins -= crop.seed
-	_update_coins()
-	_burst(plots[i].body.position, Color(0.5, 0.35, 0.2), 5)
-	_float_text(plots[i].body.position, "-%d" % crop.seed, Color(1, 0.85, 0.4))
-	_spawn_crop(i, sel_crop, Time.get_unix_time_from_system())
-	hint_label.text = "%s planted — ready in %s min!" % [crop.name, str(crop.mins)]
+	if crop.get("tree", false):
+		if not _bed_empty(p):
+			hint_label.text = "🌳 A tree needs a completely empty bed!"
+			return
+		coins -= crop.seed
+		_update_coins()
+		_make_tree(i, sel_crop, Time.get_unix_time_from_system(), false)
+		_burst(p.body.position, Color(0.5, 0.35, 0.2), 5)
+		hint_label.text = "%s tree planted — first fruit in %s min, then it keeps producing!" % [crop.name, str(crop.mins)]
+	else:
+		var si := _bed_free_slot(p)
+		if si < 0:
+			hint_label.text = "This bed is full — harvest or 🧹 clear it!"
+			return
+		coins -= crop.seed
+		_update_coins()
+		_make_plant(i, si, sel_crop, Time.get_unix_time_from_system())
+		_burst(p.body.position + SLOT_OFFS[si], Color(0.5, 0.35, 0.2), 3)
+		var filled := 0
+		for s2 in p.slots:
+			if s2 != null:
+				filled += 1
+		hint_label.text = "%s %s planted (%d/9) — ready in %s min" % [crop.e, crop.name, filled, str(crop.mins)]
 	_refresh_plot_labels()
 	_save()
 
 func _harvest(i: int) -> void:
 	var p: Dictionary = plots[i]
-	var crop: Dictionary = CROPS[p.crop]
-	var pay := int(round(crop.pay * _mult()))
-	coins += pay
-	var is_tree: bool = crop.get("tree", false)
+	var total := 0
+	var n := 0
+	for si in range(9):
+		var sl = p.slots[si]
+		if sl != null and _k_of(sl.c, sl.t, false) >= 1.0:
+			total += int(round(CROPS[sl.c].pay * _mult()))
+			n += 1
+			sl.node.queue_free()
+			p.slots[si] = null
+	if p.tree >= 0 and _k_of(p.tree, p.tplanted, p.trg) >= 1.0:
+		total += int(round(CROPS[p.tree].pay * _mult()))
+		n += 1
+		p.tplanted = Time.get_unix_time_from_system()
+		p.trg = true
+	if n == 0:
+		return
+	coins += total
 	_update_coins()
-	_burst(p.body.position, crop.color, 8)
-	_float_text(p.body.position, "+%d 🪙" % pay, Color(1, 0.9, 0.35))
+	_burst(p.body.position, Color(1, 0.85, 0.3), 4 + n)
+	_float_text(p.body.position, "+%d 🪙" % total, Color(1, 0.9, 0.35))
 	if p.get("mark") and is_instance_valid(p.mark):
 		p.mark.queue_free()
 	p.mark = null
-	if is_tree:
-		# trees are permanent: fruit regrows (faster after the first harvest)
-		p.planted = Time.get_unix_time_from_system()
-		p.regrow = true
-		hint_label.text = "Harvested %s — +%d coins! The tree regrows 🌱" % [crop.name, pay]
-	else:
-		hint_label.text = "Harvested %s — +%d coins!" % [crop.name, pay]
-		p.node.queue_free()
-		p.node = null
-		p.stem = null
-		p.fruits = []
-		p.crop = -1
-		p.planted = 0.0
-		p.is_model = false
+	hint_label.text = "Harvested %d plants — +%d coins!" % [n, total]
 	_refresh_plot_labels()
 	_save()
 
-func _growth(p: Dictionary) -> float:
-	if p.crop < 0:
-		return 0.0
-	var mins: float = CROPS[p.crop].mins
-	if p.get("regrow", false):
-		mins = mins * 0.6
-	var elapsed: float = Time.get_unix_time_from_system() - p.planted
-	var k: float = clamp(elapsed / (mins * 60.0), 0.0, 1.0)
-	if p.get("regrow", false):
-		k = max(k, 0.82)   # regrowing tree stays full-size, only the final pop returns
-	return k
+func _bed_any_ready(p: Dictionary) -> bool:
+	for sl in p.slots:
+		if sl != null and _k_of(sl.c, sl.t, false) >= 1.0:
+			return true
+	if p.tree >= 0 and _k_of(p.tree, p.tplanted, p.trg) >= 1.0:
+		return true
+	return false
 
 # ---------- input: tap, drag-pan, pinch/wheel zoom ----------
 func _unhandled_input(event: InputEvent) -> void:
@@ -723,41 +773,57 @@ func _tap(screen_pos: Vector2) -> void:
 		return
 	if p.locked:
 		return
-	if p.crop < 0:
-		if tool == "seed":
-			_plant(i)
-		else:
-			hint_label.text = "Empty plot — switch to 🌱 Seeds to plant!"
-	elif _growth(p) >= 1.0:
-		_harvest(i)
+	if _bed_any_ready(p):
+		_harvest(i)                                            # ready plants always harvest first
+	elif tool == "seed":
+		_plant(i)                                              # one seed → one slot
 	elif tool == "water":
+		var watered := 0
 		if coins < 5:
 			hint_label.text = "Watering costs 🪙5"
 			return
+		for sl in p.slots:
+			if sl != null and _k_of(sl.c, sl.t, false) < 1.0:
+				var left: float = CROPS[sl.c].mins * 60.0 - (Time.get_unix_time_from_system() - sl.t)
+				sl.t -= left * 0.25
+				watered += 1
+		if p.tree >= 0 and _k_of(p.tree, p.tplanted, p.trg) < 1.0:
+			var m2: float = CROPS[p.tree].mins * (0.6 if p.trg else 1.0)
+			var tleft: float = m2 * 60.0 - (Time.get_unix_time_from_system() - p.tplanted)
+			p.tplanted -= tleft * 0.25
+			watered += 1
+		if watered == 0:
+			hint_label.text = "Nothing growing here to water."
+			return
 		coins -= 5
 		_update_coins()
-		var left: float = CROPS[p.crop].mins * 60.0 - (Time.get_unix_time_from_system() - p.planted)
-		p.planted -= left * 0.25
 		_burst(p.body.position, Color(0.4, 0.7, 1.0), 6)
 		_float_text(p.body.position, "🚿 -25%", Color(0.55, 0.8, 1))
-		hint_label.text = "Watered — grows 25%% faster!"
+		hint_label.text = "Watered %d plants — they grow 25%% faster!" % watered
 		_save()
 	elif tool == "shovel":
-		p.node.queue_free()
-		p.node = null
-		p.crop = -1
-		p.is_model = false
-		p.planted = 0.0
+		var cleared := 0
+		for si in range(9):
+			if p.slots[si] != null:
+				p.slots[si].node.queue_free()
+				p.slots[si] = null
+				cleared += 1
+		if p.tree >= 0:
+			p.tnode.queue_free()
+			p.tnode = null
+			p.tree = -1
+			p.trg = false
+			cleared += 1
 		if p.get("mark") and is_instance_valid(p.mark):
 			p.mark.queue_free()
 		p.mark = null
-		_burst(p.body.position, Color(0.5, 0.35, 0.2), 5)
-		hint_label.text = "Plot cleared."
+		if cleared > 0:
+			_burst(p.body.position, Color(0.5, 0.35, 0.2), 5)
+			hint_label.text = "Bed cleared (%d plants dug out)." % cleared
 		_refresh_plot_labels()
 		_save()
 	else:
-		var left: float = CROPS[p.crop].mins * 60.0 - (Time.get_unix_time_from_system() - p.planted)
-		hint_label.text = "%s still growing — %d s left (🚿 water to speed up!)" % [CROPS[p.crop].name, int(max(0, left))]
+		hint_label.text = "Growing… 🚿 water to speed up, or plant more with 🌱"
 
 # ---------- it-tiġieġa: wandering chicken that lays eggs ----------
 const HOUSE_COSTS := [0, 400, 900]
@@ -925,28 +991,41 @@ func _dog_process(delta: float) -> void:
 # ---------- live growth + day/night ----------
 func _process(delta: float) -> void:
 	for p in plots:
-		if p.crop >= 0 and p.node:
-			var k := _growth(p)
-			var ms: float = 0.12 + 0.88 * k
-			p.node.scale = Vector3(ms, ms, ms)
-			var fk: float = clamp((k - 0.7) / 0.3, 0.0, 1.0)
-			for fr in p.fruits:
-				fr.scale = Vector3(fk, fk, fk)
-			if k >= 1.0:
-				var bob := 1.0 + sin(Time.get_ticks_msec() / 200.0) * 0.08
-				p.node.scale = Vector3(bob, bob, bob)
-				if not p.get("mark"):
-					var l := Label3D.new()
-					l.text = "!"
-					l.font_size = 120
-					l.modulate = Color(1, 0.85, 0.25)
-					l.outline_size = 20
-					l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-					l.position = p.body.position + Vector3(0, 2.2, 0)
-					add_child(l)
-					p.mark = l
-				elif is_instance_valid(p.mark):
-					p.mark.position.y = p.body.position.y + 2.2 + sin(Time.get_ticks_msec() / 250.0) * 0.15
+		if p.locked:
+			continue
+		var any_ready := false
+		for sl in p.slots:
+			if sl != null and is_instance_valid(sl.node):
+				var k: float = _k_of(sl.c, sl.t, false)
+				var ms: float = 0.12 + 0.88 * k
+				if k >= 1.0:
+					ms = 1.0 + sin(Time.get_ticks_msec() / 200.0) * 0.08
+					any_ready = true
+				sl.node.scale = Vector3(ms, ms, ms)
+		if p.tree >= 0 and is_instance_valid(p.tnode):
+			var tk: float = _k_of(p.tree, p.tplanted, p.trg)
+			var tms: float = 0.12 + 0.88 * tk
+			if tk >= 1.0:
+				tms = 1.0 + sin(Time.get_ticks_msec() / 260.0) * 0.05
+				any_ready = true
+			p.tnode.scale = Vector3(tms, tms, tms)
+		if any_ready:
+			if not p.get("mark"):
+				var l := Label3D.new()
+				l.text = "!"
+				l.font_size = 120
+				l.modulate = Color(1, 0.85, 0.25)
+				l.outline_size = 20
+				l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+				l.position = p.body.position + Vector3(0, 2.2, 0)
+				add_child(l)
+				p.mark = l
+			elif is_instance_valid(p.mark):
+				p.mark.position.y = p.body.position.y + 2.2 + sin(Time.get_ticks_msec() / 250.0) * 0.15
+		else:
+			if p.get("mark") and is_instance_valid(p.mark):
+				p.mark.queue_free()
+				p.mark = null
 	_chicken_process(delta)
 	_goat_process(delta)
 	_donkey_process(delta)
