@@ -26,6 +26,10 @@ var slot_prize := {}
 var slot_elapsed := 0.0
 var reel_stop := [0.9, 1.5, 2.1]
 var reel_done := [false, false, false]
+var reel_stopping := [false, false, false]
+var rp := [0.0, 0.0, 0.0]           # reel scroll position, in cells
+const SYMS_ORDER := ["sack", "big", "attack", "raid", "energy", "small"]
+const CELL := 80.0
 var sailing := false
 var sail_t := 0.0
 
@@ -430,17 +434,33 @@ func _build_ui() -> void:
 	sv.add_child(rh)
 	reels.clear()
 	for i in range(3):
-		var rp := PanelContainer.new()
-		_style(rp, Color(0.97, 0.93, 0.82, 1))
-		rp.custom_minimum_size = Vector2(84, 88)
-		var rl := Label.new()
-		rl.text = "🥟"
-		rl.add_theme_font_size_override("font_size", 44)
-		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		rl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		rp.add_child(rl)
-		rh.add_child(rp)
-		reels.append(rl)
+		var win := Panel.new()
+		var wsb := StyleBoxFlat.new()
+		wsb.bg_color = Color(0.97, 0.93, 0.82, 1)
+		wsb.corner_radius_top_left = 12
+		wsb.corner_radius_top_right = 12
+		wsb.corner_radius_bottom_left = 12
+		wsb.corner_radius_bottom_right = 12
+		wsb.border_color = Color(0.62, 0.44, 0.1)
+		wsb.set_border_width_all(2)
+		win.add_theme_stylebox_override("panel", wsb)
+		win.custom_minimum_size = Vector2(84, 88)
+		win.clip_contents = true
+		var strip := Control.new()
+		win.add_child(strip)
+		for j in range(18):
+			var c := Label.new()
+			c.text = SYM[SYMS_ORDER[j % 6]]
+			c.add_theme_font_size_override("font_size", 40)
+			c.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			c.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			c.position = Vector2(0, j * CELL)
+			c.size = Vector2(84, CELL)
+			strip.add_child(c)
+		rh.add_child(win)
+		reels.append(strip)
+		rp[i] = float(i * 2)
+		_update_reel(i)
 	lbl_slotmsg = Label.new()
 	lbl_slotmsg.text = "Match 3 to win!"
 	lbl_slotmsg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -510,6 +530,10 @@ func _build_ui() -> void:
 		row.add_child(buy)
 		build_rows.append({ "nm": nm, "st": stl, "buy": buy })
 
+func _update_reel(i: int) -> void:
+	var strip: Control = reels[i]
+	strip.position = Vector2(0, 4.0 - (fposmod(rp[i], 6.0) + 6.0) * CELL)
+
 func _toggle(p: PanelContainer) -> void:
 	var was: bool = p.visible
 	slot_panel.visible = false
@@ -541,6 +565,7 @@ func _spin() -> void:
 	slot_spinning = true
 	slot_elapsed = 0.0
 	reel_done = [false, false, false]
+	reel_stopping = [false, false, false]
 	# pick prize by weight
 	var tw := 0
 	for p in PRIZES:
@@ -710,28 +735,40 @@ func _process(delta: float) -> void:
 		lbl_regen.text = "+1 in %dm" % int(ceil((REGEN_SECS - regen_accum) / 60.0))
 	else:
 		lbl_regen.text = "FULL"
-	# slot reels
+	# slot reels: fast roll -> staggered overshoot-settle stops
 	if slot_spinning:
 		slot_elapsed += delta
-		var keys := SYM.keys()
 		for i in range(3):
-			if reel_done[i]:
+			if reel_done[i] or reel_stopping[i]:
 				continue
 			if slot_elapsed >= reel_stop[i]:
-				reel_done[i] = true
-				reels[i].text = SYM[slot_prize.k]
+				reel_stopping[i] = true
+				var prize_idx := SYMS_ORDER.find(slot_prize.k)
+				var target := ceili(rp[i]) + 4
+				while target % 6 != prize_idx:
+					target += 1
+				var tw := create_tween()
+				tw.tween_method(_settle_reel.bind(i), rp[i], float(target), 0.6).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+				tw.finished.connect(_reel_finished.bind(i))
 			else:
-				if randf() < 0.5:
-					reels[i].text = SYM[keys[randi() % keys.size()]]
-		if reel_done[0] and reel_done[1] and reel_done[2]:
-			slot_spinning = false
-			_slot_payout()
+				rp[i] += delta * (14.0 + i * 2.0)
+				_update_reel(i)
 	# wanderers
 	wt_a = _wander(wander_a, wt_a, 1.0, delta)
 	wt_b = _wander(wander_b, wt_b, 0.9, delta)
 	# luzzu bob (when not sailing)
 	if luzzu and not sailing:
 		luzzu.rotation.z = sin(t * 1.4) * 0.05
+
+func _settle_reel(v: float, i: int) -> void:
+	rp[i] = v
+	_update_reel(i)
+
+func _reel_finished(i: int) -> void:
+	reel_done[i] = true
+	if reel_done[0] and reel_done[1] and reel_done[2]:
+		slot_spinning = false
+		_slot_payout()
 
 func _wander(n: Node3D, target: Vector3, speed: float, delta: float) -> Vector3:
 	if not n:
