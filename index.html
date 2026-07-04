@@ -1,2 +1,400 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pastizzi Master 3D</title></head>
-<body style="background:#1a0d0a"><script>location.replace('pf311.html?t=' + Date.now());</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Pastizzi Master</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#1c0e1e;font-family:system-ui;
+            overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+  #c{width:100%;height:100%;touch-action:none;display:block}
+  #hud{position:fixed;top:calc(10px + env(safe-area-inset-top));left:0;right:0;display:flex;
+       justify-content:center;gap:10px;z-index:5;pointer-events:none}
+  .chip{background:rgba(20,8,6,.82);border:2px solid #e8b54a;border-radius:999px;color:#ffe08a;
+        font-weight:900;font-size:15px;padding:7px 16px;text-shadow:0 1px 3px #000}
+  #msg{position:fixed;bottom:calc(150px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;
+       color:#fff;font-weight:800;font-size:15px;text-shadow:0 2px 6px #000;z-index:5;min-height:20px;pointer-events:none}
+  #spin{position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:5;
+        font:900 20px system-ui;letter-spacing:2px;color:#5c2404;cursor:pointer;display:none;
+        background:linear-gradient(180deg,#ffd97a,#e8a52a);border:3px solid #ffe9ad;border-radius:999px;
+        padding:13px 54px;box-shadow:0 6px 0 #9c6f15,0 12px 26px rgba(0,0,0,.55)}
+  #spin:active{transform:translateX(-50%) translateY(5px);box-shadow:0 1px 0 #9c6f15}
+  #spin:disabled{opacity:.55}
+  #tabs{position:fixed;bottom:0;left:0;right:0;display:flex;z-index:6;
+        background:rgba(16,7,5,.94);border-top:2px solid #e8b54a;
+        padding-bottom:env(safe-area-inset-bottom)}
+  #tabs button{flex:1;background:none;border:none;color:#b09a80;font:800 13px system-ui;
+        padding:10px 0 12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+  #tabs button.on{color:#ffe08a}
+  #tabs button span{font-size:22px;line-height:1}
+  #tabs button.on span{transform:scale(1.15)}
+</style>
+</head>
+<body>
+<div id="hud">
+  <div class="chip">🪙 <span id="coins">0</span></div>
+  <div class="chip">🎰 <span id="spins">0</span></div>
+</div>
+<div id="msg"></div>
+<button id="spin">SPIN</button>
+<canvas id="c"></canvas>
+<div id="tabs">
+  <button id="tb-v" class="on"><span>🏝️</span>VILLAGE</button>
+  <button id="tb-s"><span>🎰</span>SLOT</button>
+  <button id="tb-c"><span>🥟</span>CRUSH</button>
+</div>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+<script>
+const canvas = document.getElementById('c');
+const engine = new BABYLON.Engine(canvas, true, { adaptToDeviceRatio: true });
+
+// ---------- shared wallet ----------
+const REGEN = 720, CAP = 50;
+let coins = +(localStorage.pm_coins ?? 3000);
+let spins = +(localStorage.pm_spins ?? 25);
+{ const then = +(localStorage.pm_ts ?? Date.now());
+  const gained = Math.floor((Date.now() - then) / (REGEN * 1000));
+  if (gained > 0 && spins < CAP) spins = Math.min(CAP, spins + gained); }
+function save(){ localStorage.pm_coins = coins; localStorage.pm_spins = spins; localStorage.pm_ts = Date.now(); }
+const coinsEl = document.getElementById('coins'), spinsEl = document.getElementById('spins'),
+      msgEl = document.getElementById('msg'), spinBtn = document.getElementById('spin');
+function hud(){ coinsEl.textContent = coins; spinsEl.textContent = spins; spinBtn.disabled = spinning || spins <= 0; }
+function toast(s){ msgEl.textContent = s; clearTimeout(toast._t); toast._t = setTimeout(() => msgEl.textContent = '', 3200); }
+setInterval(() => { if (spins < CAP){ spins++; hud(); save(); } }, REGEN * 1000);
+
+// =================================================================
+// SCENE 1 — VILLAGE (camera locked, world alive)
+// =================================================================
+const sV = new BABYLON.Scene(engine);
+{
+  sV.clearColor = BABYLON.Color4.FromHexString('#9E9AC4FF');
+  const cam = new BABYLON.ArcRotateCamera('cv', -Math.PI/4, 0.92, 36, new BABYLON.Vector3(0,-0.8,0), sV);
+  // NO attachControl — screen locked
+  new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), sV).intensity = 0.65;
+  const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.6,-1,-0.4), sV);
+  sun.position = new BABYLON.Vector3(18,26,14); sun.intensity = 1.15;
+  const sg = new BABYLON.ShadowGenerator(1536, sun);
+  sg.useBlurExponentialShadowMap = true; sg.blurKernel = 24;
+  const mat = hex => { const m = new BABYLON.StandardMaterial('m', sV);
+    m.diffuseColor = BABYLON.Color3.FromHexString(hex); m.specularColor = BABYLON.Color3.Black(); return m; };
+  const tmat = (url,u) => { const m = new BABYLON.StandardMaterial('t', sV);
+    m.diffuseTexture = new BABYLON.Texture(url, sV);
+    m.diffuseTexture.uScale = u; m.diffuseTexture.vScale = u;
+    m.specularColor = BABYLON.Color3.Black(); return m; };
+  const box = (w,h,d,x,y,z,m) => { const b = BABYLON.MeshBuilder.CreateBox('b',{width:w,height:h,depth:d},sV);
+    b.position.set(x,y,z); b.material = m; b.receiveShadows = true; sg.addShadowCaster(b); return b; };
+  box(16,3.4,16, 0,-1.7,0, tmat('assets/tex_stone.png',5));
+  box(15.6,0.5,15.6, 0,0.2,0, tmat('assets/tex_grass.png',6));
+  box(9,0.14,9, 0.5,0.5,0.5, tmat('assets/tex_stone.png',7));
+  box(9,1.2,6, 1,0.9,-4.5, tmat('assets/tex_stone.png',4));
+  for (let i=0;i<3;i++) box(3,0.28,0.7, 0,0.55+i*0.28,-1.2-i*0.62, mat('#DBC294'));
+  const sea = BABYLON.MeshBuilder.CreateGround('sea',{width:70,height:70},sV);
+  sea.position.y = -3.55;
+  const sm = new BABYLON.StandardMaterial('sea',sV);
+  sm.diffuseColor = BABYLON.Color3.FromHexString('#2E7FA6');
+  sm.specularColor = new BABYLON.Color3(0.12,0.14,0.16); sea.material = sm; sea.receiveShadows = true;
+  box(3.4,0.35,2.2, -8.2,-2.4,5.6, mat('#855C33'));
+  let luzzu = null, walker = null, dogA = null;
+  let wt = new BABYLON.Vector3(3,0.55,2), dt2 = new BABYLON.Vector3(-2,0.55,3);
+  const place = (file,h,x,y,z,ry,cb) => {
+    BABYLON.SceneLoader.ImportMesh('', 'assets/', file, sV, (meshes,p2,sk,ags) => {
+      const root = meshes[0];
+      let mn = new BABYLON.Vector3(1e9,1e9,1e9), mx = new BABYLON.Vector3(-1e9,-1e9,-1e9);
+      meshes.forEach(mm => { if(!mm.getBoundingInfo) return;
+        const bb = mm.getHierarchyBoundingVectors();
+        mn = BABYLON.Vector3.Minimize(mn, bb.min); mx = BABYLON.Vector3.Maximize(mx, bb.max); });
+      const s = h / Math.max(0.01, mx.y - mn.y);
+      root.scaling.scaleInPlace(s);
+      root.position.set(x, y - mn.y*s, z);
+      root.rotationQuaternion = null; root.rotation.y = ry;
+      meshes.forEach(mm => sg.addShadowCaster(mm));
+      ags.forEach(a => a.stop());
+      if (cb) cb(root, ags); else ags.forEach(a => a.start(true));
+    });
+  };
+  place('house.glb',3.2,-4.6,0.45,0.6,0.55);
+  place('windmill.glb',5.2,5.4,0.45,-1.2,-1.83);
+  place('well.glb',1.9,0.6,0.62,0.8,0);
+  place('olive.glb',2.6,-6.2,0.45,-4.6,0.7);
+  place('olive.glb',2.2,6.4,0.45,4.6,2.8);
+  place('luzzu.glb',1.9,-5.6,-3.3,7.6,0.44,(r,a)=>{ luzzu=r; a.forEach(x=>x.start(true)); });
+  place('man_walk.glb',1.7,3,0.55,2,0,(r,a)=>{ walker=r; a.forEach(x=>x.start(true)); });
+  place('dog_a.glb',0,0,0,0,0,(r,a)=>{ r.scaling.setAll(0.45); r.position.set(-2,0.55,3);
+    const w = a.find(x=>/Walk/i.test(x.name)); if (w) w.start(true); dogA = r; });
+  place('dog_b.glb',0,0,0,0,0,(r,a)=>{ r.scaling.setAll(0.4); r.position.set(1.6,0.55,4.2); r.rotation.y = 2.4;
+    const idle = a.find(x=>/Idle/i.test(x.name)) || a[0]; if (idle) idle.start(true);
+    const jump = a.find(x=>/Jump/i.test(x.name));
+    if (jump) setInterval(()=>{ idle&&idle.stop(); jump.start(false);
+      jump.onAnimationGroupEndObservable.addOnce(()=> idle && idle.start(true)); }, 6000); });
+  let t = 0;
+  sV.onBeforeRenderObservable.add(() => {
+    const dt = engine.getDeltaTime()/1000; t += dt;
+    if (luzzu){ luzzu.position.y = -3.3 + Math.sin(t*1.1)*0.07; luzzu.rotation.z = Math.sin(t*1.4)*0.05; }
+    const mv = (n, tgt, sp) => {
+      if (!n) return tgt;
+      const d = tgt.subtract(n.position); d.y = 0;
+      if (d.length() < 0.4) return new BABYLON.Vector3(-4+Math.random()*9, 0.55, -3+Math.random()*8);
+      const dir = d.normalize(); n.position.addInPlace(dir.scale(dt*sp));
+      n.rotation.y = Math.atan2(dir.x, dir.z) + (n === dogA ? 0 : Math.PI);
+      return tgt;
+    };
+    wt = mv(walker, wt, 1.1); dt2 = mv(dogA, dt2, 1.6);
+  });
+}
+
+// =================================================================
+// SCENE 2 — 3D SLOT (camera locked)
+// =================================================================
+const sS = new BABYLON.Scene(engine);
+let spinning = false, lever, reels = [], psCoins, bulbs = [];
+{
+  sS.clearColor = BABYLON.Color4.FromHexString('#1C0E1EFF');
+  new BABYLON.ArcRotateCamera('cs', -Math.PI/2, 1.42, 14.5, new BABYLON.Vector3(0,3.1,0), sS); // locked
+  new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), sS).intensity = 0.55;
+  new BABYLON.PointLight('k', new BABYLON.Vector3(0,5.5,6), sS).intensity = 0.95;
+  const warm = new BABYLON.PointLight('w', new BABYLON.Vector3(0,3,3.4), sS);
+  warm.diffuse = BABYLON.Color3.FromHexString('#FFCE7A'); warm.intensity = 0.5;
+  const mat = (hex,sp=0.08) => { const m = new BABYLON.StandardMaterial('m', sS);
+    m.diffuseColor = BABYLON.Color3.FromHexString(hex);
+    m.specularColor = new BABYLON.Color3(sp,sp,sp); return m; };
+  const GOLD = mat('#E8B54A',0.6); GOLD.emissiveColor = BABYLON.Color3.FromHexString('#3A2A08');
+  const RED = mat('#A81F1C',0.15), DARK = mat('#6E1418',0.1);
+  const box = (w,h,d,x,y,z,m) => { const b = BABYLON.MeshBuilder.CreateBox('b',{width:w,height:h,depth:d},sS);
+    b.position.set(x,y,z); b.material = m; return b; };
+  box(6.6,5.2,2.6, 0,2.6,0, RED);
+  box(0.5,5.2,2.7,-3.3,2.6,0,GOLD); box(0.5,5.2,2.7,3.3,2.6,0,GOLD);
+  box(7.4,0.5,3.0,0,0.25,0,GOLD); box(7.0,0.45,2.8,0,5.35,0,GOLD);
+  box(5.6,1.15,0.5,0,6.15,-0.6,DARK);
+  box(5.9,0.22,0.55,0,6.78,-0.6,GOLD); box(5.9,0.22,0.55,0,5.55,-0.6,GOLD);
+  const st = new BABYLON.DynamicTexture('sign',{width:1024,height:200},sS);
+  st.drawText('VIVA IL-FESTA!', null, 145, '900 130px Arial', '#FFE08A', '#6E1418', true);
+  const sMat = new BABYLON.StandardMaterial('sm',sS);
+  sMat.diffuseTexture = st; sMat.emissiveColor = new BABYLON.Color3(0.55,0.42,0.18);
+  const sp = BABYLON.MeshBuilder.CreatePlane('sp',{width:5.4,height:1.05},sS);
+  sp.position.set(0,6.15,-0.87); sp.material = sMat;
+  box(5.4,2.3,0.6,0,3.35,-1.05,DARK);
+  box(7.6,0.9,3.4,0,-0.45,0,DARK);
+  lever = new BABYLON.TransformNode('lever',sS); lever.position.set(3.85,3.4,0);
+  const arm = BABYLON.MeshBuilder.CreateCylinder('arm',{height:2.2,diameter:0.22},sS);
+  arm.material = GOLD; arm.parent = lever; arm.position.y = 1.1;
+  const kn = BABYLON.MeshBuilder.CreateSphere('kn',{diameter:0.66},sS);
+  kn.material = RED; kn.parent = lever; kn.position.y = 2.3;
+  for (let i=0;i<14;i++){
+    const b = BABYLON.MeshBuilder.CreateSphere('bl',{diameter:0.17},sS);
+    b.position.set(-2.8+(i%7)*0.94, i<7?4.72:2.02, -1.36);
+    const bm = new BABYLON.StandardMaterial('bm'+i,sS);
+    bm.emissiveColor = BABYLON.Color3.FromHexString('#FFE08A'); b.material = bm; bulbs.push(b);
+  }
+  const stripMat = new BABYLON.StandardMaterial('strip',sS);
+  stripMat.diffuseTexture = new BABYLON.Texture('assets/reel_strip.png',sS);
+  stripMat.specularColor = new BABYLON.Color3(0.05,0.05,0.05);
+  for (let i=0;i<3;i++){
+    const h = new BABYLON.TransformNode('rh'+i,sS);
+    h.position.set(-1.7+i*1.7,3.35,-0.95); h.rotation.z = Math.PI/2;
+    const cyl = BABYLON.MeshBuilder.CreateCylinder('reel'+i,{height:1.5,diameter:2.1,tessellation:48},sS);
+    cyl.material = stripMat; cyl.parent = h;
+    reels.push({ cyl, rot: Math.random()*6.28, speed: 0, target: null, done: true });
+    cyl.rotation.y = reels[i].rot;
+  }
+  const ct = new BABYLON.DynamicTexture('coin',{width:64,height:64},sS);
+  const cc = ct.getContext();
+  cc.beginPath(); cc.arc(32,32,26,0,7); cc.fillStyle = '#FFD24A'; cc.fill();
+  cc.lineWidth = 5; cc.strokeStyle = '#B8860B'; cc.stroke(); ct.update();
+  psCoins = new BABYLON.ParticleSystem('ps',220,sS);
+  psCoins.particleTexture = ct;
+  psCoins.emitter = new BABYLON.Vector3(0,3.3,-1.4);
+  psCoins.minEmitPower = 5; psCoins.maxEmitPower = 9;
+  psCoins.direction1 = new BABYLON.Vector3(-2,4,-3); psCoins.direction2 = new BABYLON.Vector3(2,7,-1);
+  psCoins.gravity = new BABYLON.Vector3(0,-14,0);
+  psCoins.minSize = 0.14; psCoins.maxSize = 0.3;
+  psCoins.minLifeTime = 0.7; psCoins.maxLifeTime = 1.4;
+  psCoins.emitRate = 0; psCoins.start();
+  let t = 0;
+  sS.onBeforeRenderObservable.add(() => {
+    const dt = engine.getDeltaTime()/1000; t += dt;
+    bulbs.forEach((b,i) => b.material.emissiveColor =
+      (Math.floor(t*6)%2 === i%2) ? BABYLON.Color3.FromHexString('#FFE08A') : BABYLON.Color3.FromHexString('#6B5320'));
+    reels.forEach(R => {
+      if (R.done) return;
+      if (R.target === null) R.rot += R.speed*dt;
+      else { const d = R.target - R.rot;
+        if (d <= 0.01){ R.rot = R.target; R.done = true; } else R.rot += Math.max(1.6, d*4.2)*dt; }
+      R.cyl.rotation.y = R.rot;
+    });
+  });
+}
+const SEG = Math.PI/3;
+const PRIZES = [
+  { t: '💰 +{n} coins!', c: [400,900] }, { t: '👑 JACKPOT +{n}!', c: [1500,3000] },
+  { t: '🔨 ATTACK bounty +{n}!', c: [900,1800] }, { t: '🦊 RAID bounty +{n}!', c: [1600,3200] },
+  { t: '⚡ +{n} spins!', s: [2,4] }, { t: '🥟 +{n} coins', c: [90,240] } ];
+const W = [34,10,13,8,14,21];
+function doSpin(){
+  if (spinning || spins <= 0) return;
+  spins--; spinning = true; hud(); save();
+  BABYLON.Animation.CreateAndStartAnimation('lv', lever, 'rotation.x', 60, 14, 0, -1.1, 0);
+  setTimeout(() => BABYLON.Animation.CreateAndStartAnimation('lv2', lever, 'rotation.x', 60, 20, -1.1, 0, 0), 260);
+  let tw = W.reduce((a,b)=>a+b,0), r = Math.random()*tw, pi = 0;
+  for (let i=0;i<W.length;i++){ r -= W[i]; if (r < 0){ pi = i; break; } }
+  reels.forEach((R,i) => {
+    R.done = false; R.speed = 14+i*2; R.target = null;
+    setTimeout(() => {
+      const base = Math.ceil(R.rot/(Math.PI*2))*Math.PI*2;
+      R.target = base + Math.PI*2*(2+i) + pi*SEG;
+    }, 700+i*550);
+  });
+  const chk = setInterval(() => {
+    if (!reels.every(R => R.done)) return;
+    clearInterval(chk); spinning = false;
+    const P = PRIZES[pi];
+    let n = 0;
+    if (P.c){ n = P.c[0] + Math.floor(Math.random()*(P.c[1]-P.c[0])); coins += n; }
+    if (P.s){ n = P.s[0] + Math.floor(Math.random()*(P.s[1]-P.s[0]+1)); spins += n; }
+    toast(P.t.replace('{n}', n));
+    psCoins.manualEmitCount = 160;
+    hud(); save();
+  }, 120);
+}
+spinBtn.addEventListener('click', doSpin);
+
+// =================================================================
+// SCENE 3 — MATCH-3 (camera locked)
+// =================================================================
+const sC = new BABYLON.Scene(engine);
+let busyC = false;
+{
+  sC.clearColor = BABYLON.Color4.FromHexString('#2A1410FF');
+  const N = 7, S = 1.06;
+  new BABYLON.ArcRotateCamera('cc', -Math.PI/2, Math.PI/2 - 0.14, 11.8, new BABYLON.Vector3(0,-0.2,0), sC); // locked
+  new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), sC).intensity = 0.85;
+  new BABYLON.PointLight('p', new BABYLON.Vector3(0,4,-8), sC).intensity = 0.7;
+  const fm = new BABYLON.StandardMaterial('fm',sC);
+  fm.diffuseColor = BABYLON.Color3.FromHexString('#8E5A28'); fm.specularColor = new BABYLON.Color3(0.1,0.08,0.05);
+  const frame = BABYLON.MeshBuilder.CreateBox('f',{width:N*S+0.7,height:N*S+0.7,depth:0.35},sC);
+  frame.position.z = 0.32; frame.material = fm;
+  const fe = new BABYLON.StandardMaterial('fe',sC);
+  fe.diffuseColor = BABYLON.Color3.FromHexString('#4A2418');
+  const felt = BABYLON.MeshBuilder.CreateBox('fe',{width:N*S+0.2,height:N*S+0.2,depth:0.1},sC);
+  felt.position.z = 0.16; felt.material = fe;
+  const FOODS = ['figolla','imqaret','p-irkotta','pizza','p-pizelli','qaghaq'];
+  const mats = FOODS.map(f => { const m = new BABYLON.StandardMaterial(f,sC);
+    m.diffuseTexture = new BABYLON.Texture('tiles/'+f+'.png',sC);
+    m.diffuseTexture.hasAlpha = true; m.useAlphaFromDiffuseTexture = true;
+    m.specularColor = BABYLON.Color3.Black();
+    m.emissiveColor = new BABYLON.Color3(0.25,0.22,0.18); m.backFaceCulling = false; return m; });
+  const px = c => (c-(N-1)/2)*S, py = r => ((N-1)/2-r)*S;
+  let grid = [], sel = null;
+  const mk = (r,c,k,fromTop) => {
+    const p = BABYLON.MeshBuilder.CreatePlane('t',{size:0.96},sC);
+    p.position.set(px(c), py(r) + (fromTop ? S*3 : 0), 0);
+    p.material = mats[k]; p.metadata = { r,c,k }; return p;
+  };
+  const at = (r,c) => grid[r*N+c];
+  for (let r=0;r<N;r++) for (let c=0;c<N;c++){
+    let k;
+    do { k = Math.floor(Math.random()*6); }
+    while ((c>=2 && at(r,c-1).metadata.k===k && at(r,c-2).metadata.k===k) ||
+           (r>=2 && at(r-1,c).metadata.k===k && at(r-2,c).metadata.k===k));
+    grid[r*N+c] = mk(r,c,k);
+  }
+  const anim = (m,prop,to,fr=12) => new Promise(res =>
+    BABYLON.Animation.CreateAndStartAnimation('a', m, prop, 60, fr,
+      prop.split('.').reduce((o,p)=>o[p],m), to, 0, new BABYLON.QuadraticEase(), res));
+  const findM = () => {
+    const dead = new Set();
+    for (let r=0;r<N;r++) for (let c=0;c<N-2;c++){
+      const k = at(r,c).metadata.k;
+      if (at(r,c+1).metadata.k===k && at(r,c+2).metadata.k===k){
+        let e=c+2; while(e+1<N && at(r,e+1).metadata.k===k) e++;
+        for(let i=c;i<=e;i++) dead.add(r*N+i); } }
+    for (let c=0;c<N;c++) for (let r=0;r<N-2;r++){
+      const k = at(r,c).metadata.k;
+      if (at(r+1,c).metadata.k===k && at(r+2,c).metadata.k===k){
+        let e=r+2; while(e+1<N && at(e+1,c).metadata.k===k) e++;
+        for(let i=r;i<=e;i++) dead.add(i*N+c); } }
+    return [...dead];
+  };
+  async function resolve(){
+    let chain = 0;
+    while (true){
+      const dead = findM();
+      if (!dead.length) break;
+      chain++;
+      const won = dead.length * 2 * chain;
+      coins += won; hud(); save();
+      toast('🥟 +' + won + ' coins' + (chain > 1 ? '  x' + chain + ' CHAIN!' : ''));
+      await Promise.all(dead.map(i => anim(grid[i],'scaling.x',0.01,9)));
+      dead.forEach(i => { grid[i].dispose(); grid[i] = null; });
+      const drops = [];
+      for (let c=0;c<N;c++){
+        let w = N-1;
+        for (let r=N-1;r>=0;r--){
+          if (grid[r*N+c]){
+            if (w !== r){
+              grid[w*N+c] = grid[r*N+c]; grid[r*N+c] = null;
+              grid[w*N+c].metadata.r = w;
+              drops.push(anim(grid[w*N+c],'position.y',py(w),10+(w-r)*3));
+            }
+            w--;
+          }
+        }
+        for (let r=w;r>=0;r--){
+          const tl = mk(r,c,Math.floor(Math.random()*6),true);
+          grid[r*N+c] = tl;
+          drops.push(anim(tl,'position.y',py(r),14));
+        }
+      }
+      await Promise.all(drops);
+    }
+  }
+  async function swap(a,b){
+    busyC = true;
+    const {r:r1,c:c1} = a.metadata, {r:r2,c:c2} = b.metadata;
+    await Promise.all([anim(a,'position.x',px(c2),8),anim(a,'position.y',py(r2),8),
+                       anim(b,'position.x',px(c1),8),anim(b,'position.y',py(r1),8)]);
+    grid[r1*N+c1]=b; grid[r2*N+c2]=a;
+    a.metadata.r=r2; a.metadata.c=c2; b.metadata.r=r1; b.metadata.c=c1;
+    if (findM().length) await resolve();
+    else {
+      await Promise.all([anim(a,'position.x',px(c1),8),anim(a,'position.y',py(r1),8),
+                         anim(b,'position.x',px(c2),8),anim(b,'position.y',py(r2),8)]);
+      grid[r1*N+c1]=a; grid[r2*N+c2]=b;
+      a.metadata.r=r1; a.metadata.c=c1; b.metadata.r=r2; b.metadata.c=c2;
+    }
+    busyC = false;
+  }
+  sC.onPointerObservable.add(pi2 => {
+    if (active !== 'c' || pi2.type !== BABYLON.PointerEventTypes.POINTERDOWN || busyC) return;
+    const hit = sC.pick(sC.pointerX, sC.pointerY, m => m.metadata && m.metadata.k !== undefined);
+    if (!hit.hit){ if (sel){ sel.scaling.setAll(1); sel = null; } return; }
+    const m = hit.pickedMesh;
+    if (!sel){ sel = m; m.scaling.setAll(1.18); return; }
+    if (m === sel){ sel.scaling.setAll(1); sel = null; return; }
+    const dr = Math.abs(m.metadata.r - sel.metadata.r), dc = Math.abs(m.metadata.c - sel.metadata.c);
+    const prev = sel; prev.scaling.setAll(1); sel = null;
+    if (dr + dc === 1) swap(prev, m);
+    else { sel = m; m.scaling.setAll(1.18); }
+  });
+}
+
+// ---------- tab manager ----------
+const scenes = { v: sV, s: sS, c: sC };
+let active = 'v';
+const tabs = { v: document.getElementById('tb-v'), s: document.getElementById('tb-s'), c: document.getElementById('tb-c') };
+function go(k){
+  active = k;
+  for (const key in tabs) tabs[key].classList.toggle('on', key === k);
+  spinBtn.style.display = k === 's' ? 'block' : 'none';
+  msgEl.textContent = '';
+}
+tabs.v.addEventListener('click', () => go('v'));
+tabs.s.addEventListener('click', () => go('s'));
+tabs.c.addEventListener('click', () => go('c'));
+go('v'); hud();
+
+engine.runRenderLoop(() => scenes[active].render());
+addEventListener('resize', () => engine.resize());
+</script>
+</body>
+</html>
