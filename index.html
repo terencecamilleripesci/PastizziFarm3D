@@ -256,8 +256,11 @@ let spinning = false, lever, reels = [], psCoins, bulbs = [];
     bm.emissiveColor = BABYLON.Color3.FromHexString('#FFE08A'); b.material = bm; bulbs.push(b);
   }
   const stripMat = new BABYLON.StandardMaterial('strip',sS);
-  stripMat.diffuseTexture = new BABYLON.Texture('assets/reel_strip.png',sS);
-  stripMat.specularColor = new BABYLON.Color3(0.05,0.05,0.05);
+  const stripTex = new BABYLON.Texture('assets/reel_strip.png',sS);
+  stripMat.diffuseTexture = stripTex;
+  stripMat.emissiveTexture = stripTex;          // backlit reels — always bright
+  stripMat.disableLighting = true;
+  stripMat.specularColor = BABYLON.Color3.Black();
   for (let i=0;i<3;i++){
     const h = new BABYLON.TransformNode('rh'+i,sS);
     h.position.set(-1.7+i*1.7,3.35,-0.95); h.rotation.z = Math.PI/2;
@@ -275,7 +278,7 @@ let spinning = false, lever, reels = [], psCoins, bulbs = [];
   sS._wlMat = wlMat;
   // glass shine over the reels
   const glMat = new BABYLON.StandardMaterial('glass', sS);
-  glMat.diffuseColor = new BABYLON.Color3(1,1,1); glMat.alpha = 0.10;
+  glMat.diffuseColor = new BABYLON.Color3(1,1,1); glMat.alpha = 0.05;
   glMat.emissiveColor = new BABYLON.Color3(0.5,0.55,0.65);
   const glass = BABYLON.MeshBuilder.CreatePlane('gp', {width:5.3, height:2.15}, sS);
   glass.position.set(0, 3.55, -1.72); glass.material = glMat;
