@@ -43,6 +43,11 @@
   <div class="chip">🎰 <span id="spins">0</span></div>
 </div>
 <div id="msg"></div>
+<div id="lvlbar" style="position:fixed;top:calc(52px + env(safe-area-inset-top));left:0;right:0;display:none;justify-content:center;gap:8px;z-index:5;pointer-events:none">
+  <div class="chip" style="font-size:13px">LVL <span id="lv">1</span></div>
+  <div class="chip" style="font-size:13px">🎯 <span id="prog">0</span>/<span id="tgt">600</span></div>
+  <div class="chip" style="font-size:13px">🥾 <span id="mvs">20</span></div>
+</div>
 <div id="bets" style="position:fixed;bottom:calc(148px + env(safe-area-inset-bottom));left:0;right:0;display:none;justify-content:center;gap:8px;z-index:5">
   <button class="bet on" data-b="1">x1</button><button class="bet" data-b="2">x2</button><button class="bet" data-b="5">x5</button><button class="bet" data-b="10">x10</button>
 </div>
@@ -384,44 +389,82 @@ function doSpin(){
 spinBtn.addEventListener('click', doSpin);
 
 // =================================================================
-// SCENE 3 — MATCH-3 (camera locked)
+// SCENE 3 — CRUSH: full level mode (shaped boards, moves, targets)
 // =================================================================
 const sC = new BABYLON.Scene(engine);
 let busyC = false;
+const SHAPES = [
+  ["1111111","1111111","1111111","1111111","1111111","1111111","1111111"],   // full
+  ["0011100","0111110","1111111","1111111","1111111","0111110","0011100"],   // diamond
+  ["1100011","1110111","1111111","0111110","1111111","1110111","1100011"],   // bowtie X
+  ["1111111","1111111","1100011","1100011","1100011","1111111","1111111"],   // ring
+  ["0111110","1111111","1111111","1111111","0111110","0011100","0001000"],   // heart-ish
+  ["0011100","0011100","1111111","1111111","1111111","0011100","0011100"],   // cross
+  ["1111111","0111110","0011100","0001000","0011100","0111110","1111111"],   // hourglass
+  ["1000001","1100011","1110111","1111111","1110111","1100011","1000001"],   // arrowhead
+];
+let lvl = +(localStorage.pm_lvl ?? 1);
+let mask, movesLeft = 20, target = 600, prog = 0;
+const lvEl = document.getElementById('lv'), progEl = document.getElementById('prog'),
+      tgtEl = document.getElementById('tgt'), mvsEl = document.getElementById('mvs');
+function lvlHud(){ lvEl.textContent = lvl; progEl.textContent = prog; tgtEl.textContent = target; mvsEl.textContent = movesLeft; }
+let camC;
 {
   sC.clearColor = BABYLON.Color4.FromHexString('#2A1410FF');
   const N = 7, S = 1.06;
-  new BABYLON.ArcRotateCamera('cc', -Math.PI/2, Math.PI/2 - 0.14, 11.8, new BABYLON.Vector3(0,-0.2,0), sC); // locked
-  new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), sC).intensity = 0.85;
-  new BABYLON.PointLight('p', new BABYLON.Vector3(0,4,-8), sC).intensity = 0.7;
-  const fm = new BABYLON.StandardMaterial('fm',sC);
-  fm.diffuseColor = BABYLON.Color3.FromHexString('#8E5A28'); fm.specularColor = new BABYLON.Color3(0.1,0.08,0.05);
-  const frame = BABYLON.MeshBuilder.CreateBox('f',{width:N*S+0.7,height:N*S+0.7,depth:0.35},sC);
-  frame.position.z = 0.32; frame.material = fm;
-  const fe = new BABYLON.StandardMaterial('fe',sC);
-  fe.diffuseColor = BABYLON.Color3.FromHexString('#4A2418');
-  const felt = BABYLON.MeshBuilder.CreateBox('fe',{width:N*S+0.2,height:N*S+0.2,depth:0.1},sC);
-  felt.position.z = 0.16; felt.material = fe;
+  camC = new BABYLON.ArcRotateCamera('cc', -Math.PI/2, Math.PI/2, 12, new BABYLON.Vector3(0,-0.1,0), sC); // locked, front-on
+  new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), sC).intensity = 0.9;
+  new BABYLON.PointLight('p', new BABYLON.Vector3(0,4,-8), sC).intensity = 0.6;
   const FOODS = ['figolla','imqaret','p-irkotta','pizza','p-pizelli','qaghaq'];
   const mats = FOODS.map(f => { const m = new BABYLON.StandardMaterial(f,sC);
-    m.diffuseTexture = new BABYLON.Texture('tiles/'+f+'.png',sC);
+    const tx = new BABYLON.Texture('tiles/'+f+'.png',sC);
+    m.diffuseTexture = tx; m.emissiveTexture = tx;      // backlit tiles, always bright
     m.diffuseTexture.hasAlpha = true; m.useAlphaFromDiffuseTexture = true;
-    m.specularColor = BABYLON.Color3.Black();
-    m.emissiveColor = new BABYLON.Color3(0.25,0.22,0.18); m.backFaceCulling = false; return m; });
+    m.disableLighting = true; m.backFaceCulling = false; return m; });
+  const backMat = new BABYLON.StandardMaterial('bk',sC);
+  backMat.diffuseColor = BABYLON.Color3.FromHexString('#4A2418');
+  backMat.emissiveColor = BABYLON.Color3.FromHexString('#241009');
+  backMat.specularColor = BABYLON.Color3.Black();
   const px = c => (c-(N-1)/2)*S, py = r => ((N-1)/2-r)*S;
-  let grid = [], sel = null;
+  let grid = [], backs = [], sel = null;
+  const on = (r,c) => r>=0 && r<N && c>=0 && c<N && mask[r][c] === '1';
+  const at = (r,c) => grid[r*N+c];
   const mk = (r,c,k,fromTop) => {
     const p = BABYLON.MeshBuilder.CreatePlane('t',{size:0.96},sC);
-    p.position.set(px(c), py(r) + (fromTop ? S*3 : 0), 0);
+    p.position.set(px(c), py(r) + (fromTop ? S*3.2 : 0), 0);
     p.material = mats[k]; p.metadata = { r,c,k }; return p;
   };
-  const at = (r,c) => grid[r*N+c];
-  for (let r=0;r<N;r++) for (let c=0;c<N;c++){
-    let k;
-    do { k = Math.floor(Math.random()*6); }
-    while ((c>=2 && at(r,c-1).metadata.k===k && at(r,c-2).metadata.k===k) ||
-           (r>=2 && at(r-1,c).metadata.k===k && at(r-2,c).metadata.k===k));
-    grid[r*N+c] = mk(r,c,k);
+  function fitCamera(){
+    let r0=N, r1=-1, c0=N, c1=-1;
+    for (let r=0;r<N;r++) for (let c=0;c<N;c++) if (on(r,c)){ r0=Math.min(r0,r); r1=Math.max(r1,r); c0=Math.min(c0,c); c1=Math.max(c1,c); }
+    const w = (c1-c0+1)*S + 0.8, h = (r1-r0+1)*S + 0.8;
+    const aspect = engine.getRenderWidth()/engine.getRenderHeight();
+    const vfov = camC.fov;                                   // vertical
+    const hfov = 2*Math.atan(Math.tan(vfov/2)*aspect);
+    const availH = 0.62;                                     // fraction of screen height for the board (HUD + tabs eat the rest)
+    const rH = (h/availH/2)/Math.tan(vfov/2);
+    const rW = (w/2)/Math.tan(hfov/2)*1.1;
+    camC.radius = Math.max(rH, rW);
+    camC.target = new BABYLON.Vector3((px(c0)+px(c1))/2, (py(r0)+py(r1))/2 - 0.15, 0);
+  }
+  function buildLevel(){
+    grid.forEach(g => g && g.dispose()); backs.forEach(b => b.dispose());
+    grid = []; backs = []; sel = null;
+    mask = SHAPES[(lvl-1) % SHAPES.length];
+    target = 500 + (lvl-1)*350;
+    movesLeft = Math.max(14, 24 - Math.floor((lvl-1)/2));
+    prog = 0;
+    for (let r=0;r<N;r++) for (let c=0;c<N;c++){
+      if (!on(r,c)){ grid[r*N+c] = null; continue; }
+      const bp = BABYLON.MeshBuilder.CreatePlane('bk',{size:1.0},sC);
+      bp.position.set(px(c), py(r), 0.12); bp.material = backMat; backs.push(bp);
+      let k;
+      do { k = Math.floor(Math.random()*6); }
+      while ((on(r,c-1) && on(r,c-2) && at(r,c-1) && at(r,c-2) && at(r,c-1).metadata.k===k && at(r,c-2).metadata.k===k) ||
+             (on(r-1,c) && on(r-2,c) && at(r-1,c) && at(r-2,c) && at(r-1,c).metadata.k===k && at(r-2,c).metadata.k===k));
+      grid[r*N+c] = mk(r,c,k);
+    }
+    fitCamera(); lvlHud();
   }
   const anim = (m,prop,to,fr=12) => new Promise(res =>
     BABYLON.Animation.CreateAndStartAnimation('a', m, prop, 60, fr,
@@ -429,14 +472,16 @@ let busyC = false;
   const findM = () => {
     const dead = new Set();
     for (let r=0;r<N;r++) for (let c=0;c<N-2;c++){
+      if (!on(r,c)||!on(r,c+1)||!on(r,c+2)) continue;
       const k = at(r,c).metadata.k;
       if (at(r,c+1).metadata.k===k && at(r,c+2).metadata.k===k){
-        let e=c+2; while(e+1<N && at(r,e+1).metadata.k===k) e++;
+        let e=c+2; while(e+1<N && on(r,e+1) && at(r,e+1).metadata.k===k) e++;
         for(let i=c;i<=e;i++) dead.add(r*N+i); } }
     for (let c=0;c<N;c++) for (let r=0;r<N-2;r++){
+      if (!on(r,c)||!on(r+1,c)||!on(r+2,c)) continue;
       const k = at(r,c).metadata.k;
       if (at(r+1,c).metadata.k===k && at(r+2,c).metadata.k===k){
-        let e=r+2; while(e+1<N && at(e+1,c).metadata.k===k) e++;
+        let e=r+2; while(e+1<N && on(e+1,c) && at(e+1,c).metadata.k===k) e++;
         for(let i=r;i<=e;i++) dead.add(i*N+c); } }
     return [...dead];
   };
@@ -446,32 +491,51 @@ let busyC = false;
       const dead = findM();
       if (!dead.length) break;
       chain++;
+      const pts = dead.length * 12 * chain;
+      prog += pts;
       const won = dead.length * 2 * chain;
-      coins += won; hud(); save();
+      coins += won; hud(); save(); lvlHud();
       sfx.match(chain);
-      toast('🥟 +' + won + ' coins' + (chain > 1 ? '  x' + chain + ' CHAIN!' : ''));
       await Promise.all(dead.map(i => anim(grid[i],'scaling.x',0.01,9)));
       dead.forEach(i => { grid[i].dispose(); grid[i] = null; });
       const drops = [];
       for (let c=0;c<N;c++){
-        let w = N-1;
-        for (let r=N-1;r>=0;r--){
-          if (grid[r*N+c]){
-            if (w !== r){
-              grid[w*N+c] = grid[r*N+c]; grid[r*N+c] = null;
-              grid[w*N+c].metadata.r = w;
-              drops.push(anim(grid[w*N+c],'position.y',py(w),10+(w-r)*3));
-            }
-            w--;
-          }
+        const cells = [];
+        for (let r=0;r<N;r++) if (on(r,c)) cells.push(r);
+        const alive = cells.map(r => grid[r*N+c]).filter(Boolean);
+        for (let i=0;i<cells.length;i++) grid[cells[i]*N+c] = null;
+        // survivors settle to the bottom of the shape
+        for (let i=0;i<alive.length;i++){
+          const r = cells[cells.length - alive.length + i];
+          grid[r*N+c] = alive[i]; alive[i].metadata.r = r; alive[i].metadata.c = c;
+          drops.push(anim(alive[i],'position.y',py(r),12));
         }
-        for (let r=w;r>=0;r--){
+        // new tiles rain into the rest
+        for (let i=0;i<cells.length-alive.length;i++){
+          const r = cells[i];
           const tl = mk(r,c,Math.floor(Math.random()*6),true);
           grid[r*N+c] = tl;
           drops.push(anim(tl,'position.y',py(r),14));
         }
       }
       await Promise.all(drops);
+    }
+    if (prog >= target){
+      busyC = true;
+      const bonus = 200 + movesLeft*40 + lvl*50;
+      coins += bonus; spins += 1;
+      sfx.jackpot();
+      document.getElementById('flash').classList.remove('go');
+      void document.getElementById('flash').offsetWidth;
+      document.getElementById('flash').classList.add('go');
+      toast('🎉 LEVEL ' + lvl + ' COMPLETE! +' + bonus + ' coins, +1 spin!');
+      lvl++; localStorage.pm_lvl = lvl; hud(); save();
+      setTimeout(() => { buildLevel(); busyC = false; }, 1600);
+    } else if (movesLeft <= 0){
+      busyC = true;
+      toast('💔 Out of moves — retry level ' + lvl + '!');
+      blip(200,.3,'sawtooth',.15,-120);
+      setTimeout(() => { buildLevel(); busyC = false; }, 1500);
     }
   }
   async function swap(a,b){
@@ -481,20 +545,26 @@ let busyC = false;
                        anim(b,'position.x',px(c1),8),anim(b,'position.y',py(r1),8)]);
     grid[r1*N+c1]=b; grid[r2*N+c2]=a;
     a.metadata.r=r2; a.metadata.c=c2; b.metadata.r=r1; b.metadata.c=c1;
-    if (findM().length) await resolve();
+    if (findM().length){
+      movesLeft--; lvlHud();
+      await resolve();
+      if (prog < target && movesLeft > 0) busyC = false;
+    }
     else {
       await Promise.all([anim(a,'position.x',px(c1),8),anim(a,'position.y',py(r1),8),
                          anim(b,'position.x',px(c2),8),anim(b,'position.y',py(r2),8)]);
       grid[r1*N+c1]=a; grid[r2*N+c2]=b;
       a.metadata.r=r1; a.metadata.c=c1; b.metadata.r=r2; b.metadata.c=c2;
+      blip(160,.12,'square',.1);
+      busyC = false;
     }
-    busyC = false;
   }
   sC.onPointerObservable.add(pi2 => {
     if (active !== 'c' || pi2.type !== BABYLON.PointerEventTypes.POINTERDOWN || busyC) return;
     const hit = sC.pick(sC.pointerX, sC.pointerY, m => m.metadata && m.metadata.k !== undefined);
     if (!hit.hit){ if (sel){ sel.scaling.setAll(1); sel = null; } return; }
     const m = hit.pickedMesh;
+    sfx.click();
     if (!sel){ sel = m; m.scaling.setAll(1.18); return; }
     if (m === sel){ sel.scaling.setAll(1); sel = null; return; }
     const dr = Math.abs(m.metadata.r - sel.metadata.r), dc = Math.abs(m.metadata.c - sel.metadata.c);
@@ -502,6 +572,10 @@ let busyC = false;
     if (dr + dc === 1) swap(prev, m);
     else { sel = m; m.scaling.setAll(1.18); }
   });
+  const dbg = new URLSearchParams(location.search).get('lvl');
+  if (dbg) lvl = +dbg;
+  buildLevel();
+  addEventListener('resize', () => setTimeout(fitCamera, 100));
 }
 
 // ---------- tab manager ----------
@@ -513,6 +587,7 @@ function go(k){
   for (const key in tabs) tabs[key].classList.toggle('on', key === k);
   spinBtn.style.display = k === 's' ? 'block' : 'none';
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
+  document.getElementById('lvlbar').style.display = k === 'c' ? 'flex' : 'none';
   msgEl.textContent = '';
   sfx.click();
 }
