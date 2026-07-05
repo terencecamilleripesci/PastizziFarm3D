@@ -53,6 +53,8 @@
 </div>
 <button id="spin">SPIN</button>
 <div id="flash"></div>
+<iframe id="crushFrame" style="position:fixed;left:0;right:0;top:0;bottom:52px;width:100%;height:calc(100dvh - 52px);
+  border:0;display:none;z-index:3;background:#140a08" allow="autoplay" title="Pastizzi Crush"></iframe>
 <canvas id="c"></canvas>
 <div id="tabs">
   <button id="tb-v" class="on"><span>🏝️</span>VILLAGE</button>
@@ -598,21 +600,39 @@ let camC;
 const scenes = { v: sV, s: sS, c: sC };
 let active = 'v';
 const tabs = { v: document.getElementById('tb-v'), s: document.getElementById('tb-s'), c: document.getElementById('tb-c') };
+const CRUSH_URL = 'https://terencecamilleripesci.github.io/Pastizicrush/?embed=1';
+const crushFrame = document.getElementById('crushFrame');
 function go(k){
   active = k;
   for (const key in tabs) tabs[key].classList.toggle('on', key === k);
   spinBtn.style.display = k === 's' ? 'block' : 'none';
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
-  document.getElementById('lvlbar').style.display = k === 'c' ? 'flex' : 'none';
+  document.getElementById('lvlbar').style.display = 'none';   // original game has its own HUD
+  document.getElementById('hud').style.display = k === 'c' ? 'none' : 'flex';
+  if (k === 'c'){
+    if (!crushFrame.src) crushFrame.src = CRUSH_URL;
+    crushFrame.style.display = 'block';
+  } else crushFrame.style.display = 'none';
   msgEl.textContent = '';
   sfx.click();
 }
+// wallet bridge: the ORIGINAL game reports wins/losses
+addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type !== 'pc') return;
+  if (d.ev === 'win'){
+    const bonus = 100 + (d.level || 1) * 15;
+    coins += bonus; spins += 1; hud(); save();
+    toast('🥟 Level ' + d.level + ' cleared! +' + bonus + ' 🪙 +1 🎰 (Master bonus)');
+    sfx.coin();
+  }
+});
 tabs.v.addEventListener('click', () => go('v'));
 tabs.s.addEventListener('click', () => go('s'));
 tabs.c.addEventListener('click', () => go('c'));
 go(new URLSearchParams(location.search).get('tab') || 'v'); hud();
 
-engine.runRenderLoop(() => scenes[active].render());
+engine.runRenderLoop(() => { if (active !== 'c') scenes[active].render(); });
 addEventListener('resize', () => engine.resize());
 </script>
 </body>
