@@ -52,6 +52,15 @@
   <button class="bet on" data-b="1">x1</button><button class="bet" data-b="2">x2</button><button class="bet" data-b="5">x5</button><button class="bet" data-b="10">x10</button>
 </div>
 <button id="spin">SPIN</button>
+<button id="buildFab" style="position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:5;
+  font:900 18px system-ui;letter-spacing:1px;color:#1a1206;cursor:pointer;
+  background:linear-gradient(180deg,#ffd97a,#e8a52a);border:3px solid #ffe9ad;border-radius:999px;
+  padding:12px 44px;box-shadow:0 6px 0 #9c6f15,0 12px 26px rgba(0,0,0,.55)">🏗️ BUILD</button>
+<div id="buildPanel" style="position:fixed;left:12px;right:12px;bottom:calc(150px + env(safe-area-inset-bottom));z-index:5;display:none;
+  background:rgba(16,7,5,.96);border:3px solid #e8b54a;border-radius:18px;padding:14px 12px 10px">
+  <div style="text-align:center;font:900 16px system-ui;color:#ffe08a;margin-bottom:8px">🏗️ Build <span id="bvName">Birgu</span> — <span id="bvStars">0</span>/25 ⭐</div>
+  <div id="buildRows"></div>
+</div>
 <div id="flash"></div>
 <iframe id="crushFrame" style="position:fixed;left:0;right:0;top:0;bottom:52px;width:100%;height:calc(100dvh - 52px);
   border:0;display:none;z-index:3;background:#140a08" allow="autoplay" title="Pastizzi Crush"></iframe>
@@ -167,12 +176,27 @@ const sV = new BABYLON.Scene(engine);
       if (cb) cb(root, ags); else ags.forEach(a => a.start(true));
     });
   };
-  place('house.glb',3.2,-4.6,0.45,0.6,0.55);
-  place('windmill.glb',5.2,5.4,0.45,-1.2,-1.83);
-  place('well.glb',1.9,0.6,0.62,0.8,0);
+  const reg = (key, h, baseY) => (root, a) => {
+    a.forEach(x => x.start(true));
+    const s1 = root.scaling.x;
+    bReg[key] = { root, s1, minY: (root.position.y - baseY) / -s1, baseY, h };
+    const i = B_DEFS.findIndex(b => b.k === key);
+    if (i >= 0) bApply(i);
+  };
+  place('house.glb',3.2,-4.6,0.45,0.6,0.55, reg('forn', 3.2, 0.45));
+  place('windmill.glb',5.2,5.4,0.45,-1.2,-1.83, reg('torri', 5.2, 0.45));
+  place('well.glb',1.9,0.6,0.62,0.8,0, reg('bir', 1.9, 0.62));
   place('olive.glb',2.6,-6.2,0.45,-4.6,0.7);
   place('olive.glb',2.2,6.4,0.45,4.6,2.8);
-  place('luzzu.glb',1.9,-5.6,-3.3,7.6,0.44,(r,a)=>{ luzzu=r; a.forEach(x=>x.start(true)); });
+  place('luzzu.glb',1.9,-5.6,-3.3,7.6,0.44,(r,a)=>{ luzzu=r; reg('luzzu', 1.9, -3.3)(r, a); });
+  // Il-Monti stall (primitives)
+  { const stall = new BABYLON.TransformNode('monti', sV); stall.position = new BABYLON.Vector3(2.6,0.55,4.6); stall.rotation.y = -0.2;
+    const bx=(w,h2,d,x,y,z,c)=>{ const b=BABYLON.MeshBuilder.CreateBox('mb',{width:w,height:h2,depth:d},sV); b.position.set(x,y,z); b.material=mat(c); b.parent=stall; sg.addShadowCaster(b); return b; };
+    bx(2.2,0.8,1.0,0,0.4,0,'#9E7042');
+    for (let i2=0;i2<6;i2++) bx(0.36,0.06,1.5,-0.9+i2*0.36,1.35,0,(i2%2===0?'#3366BF':'#F8F5EB'));
+    bx(0.1,1.3,0.1,-1,0.7,0.6,'#734D29'); bx(0.1,1.3,0.1,1,0.7,0.6,'#734D29');
+    bReg['monti'] = { root: stall, s1: 0, minY: 0, baseY: 0.55, h: 1.6 };
+    const mi2 = B_DEFS.findIndex(b => b.k==='monti'); if (mi2>=0) bApply(mi2); }
   place('man_walk.glb',1.7,3,0.55,2,0,(r,a)=>{ walker=r; a.forEach(x=>x.start(true)); });
   place('dog_a.glb',0,0,0,0,0,(r,a)=>{ r.scaling.setAll(0.45); r.position.set(-2,0.55,3);
     const w = a.find(x=>/Walk/i.test(x.name)); if (w) w.start(true); dogA = r; });
@@ -596,6 +620,68 @@ let camC;
   addEventListener('orientationchange', () => setTimeout(() => { engine.resize(); fitCamera(); }, 250));
 }
 
+// ---------- VILLAGE BUILD SHOP (the coin sink) ----------
+const B_DEFS = [
+  { k: 'forn',  n: '🥟 Il-Forn' },
+  { k: 'torri', n: '🗼 It-Torri' },
+  { k: 'bir',   n: '⛲ Il-Bir' },
+  { k: 'luzzu', n: '🛶 Il-Luzzu' },
+  { k: 'monti', n: '🏪 Il-Monti' },
+];
+const V_NAMES = ['Birgu','Marsaxlokk','L-Imdina','Valletta','Għawdex'];
+let bLvls = JSON.parse(localStorage.pm_b || '[0,0,0,0,0]');
+let vNum = +(localStorage.pm_v || 0);
+const bReg = {};            // key -> {root, s1, minY, baseY} filled by the village scene
+function bApply(i){
+  const reg = bReg[B_DEFS[i].k];
+  if (!reg || !reg.root) return;
+  const k = 0.7 + 0.12 * bLvls[i];
+  if (reg.s1){ const sc = reg.s1 * k; reg.root.scaling.setAll(sc); reg.root.position.y = reg.baseY - reg.minY * sc; }
+  else reg.root.scaling.setAll(k);
+  if (bLvls[i] >= 5 && !reg.star){
+    const st = BABYLON.MeshBuilder.CreateSphere('st', { diameter: 0.5 }, sV);
+    const sm2 = new BABYLON.StandardMaterial('sm2', sV);
+    sm2.emissiveColor = BABYLON.Color3.FromHexString('#FFE08A'); sm2.disableLighting = true;
+    st.material = sm2;
+    st.position = reg.root.position.add(new BABYLON.Vector3(0, reg.h + 1.0, 0));
+    reg.star = st;
+  }
+}
+function bCost(i){ return Math.round(400 * (1 + 0.35 * i) * (1 + 0.9 * bLvls[i]) * Math.pow(1.6, vNum) / 10) * 10; }
+function bStarsTotal(){ return bLvls.reduce((a, b) => a + b, 0); }
+function bRefresh(){
+  document.getElementById('bvName').textContent = V_NAMES[vNum % V_NAMES.length];
+  document.getElementById('bvStars').textContent = bStarsTotal();
+  document.getElementById('buildRows').innerHTML = B_DEFS.map((b, i) => {
+    const stars = '★'.repeat(bLvls[i]) + '☆'.repeat(5 - bLvls[i]);
+    const btn = bLvls[i] >= 5
+      ? '<button disabled style="opacity:.5;font:800 13px system-ui;padding:8px 14px;border-radius:10px;border:0">MAX ✓</button>'
+      : `<button onclick="bBuy(${i})" style="font:800 13px system-ui;padding:8px 14px;border-radius:10px;border:0;cursor:pointer;
+           background:linear-gradient(180deg,#ffd97a,#e8a52a);color:#1a1206" ${coins < bCost(i) ? 'disabled style="opacity:.5;font:800 13px system-ui;padding:8px 14px;border-radius:10px;border:0"' : ''}>🪙 ${bCost(i)}</button>`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;color:#ffe9c9;font:600 14px system-ui">
+      <span style="flex:1">${b.n}</span><span style="color:#ffd97a;letter-spacing:1px">${stars}</span>${btn}</div>`;
+  }).join('');
+}
+window.bBuy = function(i){
+  const c = bCost(i);
+  if (coins < c || bLvls[i] >= 5) return;
+  coins -= c; bLvls[i]++;
+  localStorage.pm_b = JSON.stringify(bLvls);
+  bApply(i); hud(); save(); bRefresh();
+  sfx.coin();
+  toast('⭐ ' + B_DEFS[i].n + ' is now ' + bLvls[i] + '-star!');
+  if (bStarsTotal() >= 25){
+    spins += 20; coins += 5000; vNum++; bLvls = [0,0,0,0,0];
+    localStorage.pm_b = JSON.stringify(bLvls); localStorage.pm_v = vNum;
+    B_DEFS.forEach((_, j) => { const r = bReg[B_DEFS[j].k]; if (r && r.star){ r.star.dispose(); r.star = null; } bApply(j); });
+    hud(); save(); bRefresh();
+    sfx.jackpot();
+    document.getElementById('flash').classList.remove('go');
+    void document.getElementById('flash').offsetWidth;
+    document.getElementById('flash').classList.add('go');
+    toast('🎉 ' + V_NAMES[(vNum - 1) % V_NAMES.length] + ' COMPLETE! +20 🎰 +5000 🪙 → Welcome to ' + V_NAMES[vNum % V_NAMES.length] + '!');
+  }
+};
 // ---------- tab manager ----------
 const scenes = { v: sV, s: sS, c: sC };
 let active = 'v';
@@ -606,6 +692,8 @@ function go(k){
   active = k;
   for (const key in tabs) tabs[key].classList.toggle('on', key === k);
   spinBtn.style.display = k === 's' ? 'block' : 'none';
+  document.getElementById('buildFab').style.display = k === 'v' ? 'block' : 'none';
+  if (k !== 'v') document.getElementById('buildPanel').style.display = 'none';
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
   document.getElementById('lvlbar').style.display = 'none';   // original game has its own HUD
   document.getElementById('hud').style.display = k === 'c' ? 'none' : 'flex';
@@ -626,6 +714,13 @@ addEventListener('message', e => {
     toast('🥟 Level ' + d.level + ' cleared! +' + bonus + ' 🪙 +1 🎰 (Master bonus)');
     sfx.coin();
   }
+});
+document.getElementById('buildFab').addEventListener('click', () => {
+  const p = document.getElementById('buildPanel');
+  const show = p.style.display !== 'block';
+  p.style.display = show ? 'block' : 'none';
+  if (show) bRefresh();
+  sfx.click();
 });
 tabs.v.addEventListener('click', () => go('v'));
 tabs.s.addEventListener('click', () => go('s'));
