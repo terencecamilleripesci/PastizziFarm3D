@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Pastizzi Master</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#1c0e1e;font-family:system-ui;
+  html,body{margin:0;height:100dvh;overflow:hidden;background:#1c0e1e;font-family:system-ui;
             overscroll-behavior:none;-webkit-user-select:none;user-select:none}
-  #c{width:100%;height:100%;touch-action:none;display:block}
+  #c{width:100vw;height:100dvh;touch-action:none;display:block}
   #hud{position:fixed;top:calc(10px + env(safe-area-inset-top));left:0;right:0;display:flex;
        justify-content:center;gap:10px;z-index:5;pointer-events:none}
   .chip{background:rgba(20,8,6,.82);border:2px solid #e8b54a;border-radius:999px;color:#ffe08a;
@@ -63,7 +63,16 @@
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 <script>
 const canvas = document.getElementById('c');
-const engine = new BABYLON.Engine(canvas, true, { adaptToDeviceRatio: true });
+const engine = new BABYLON.Engine(canvas, true, { adaptToDeviceRatio: true, limitDeviceRatio: 2 });
+// iOS zoom killers: Safari ignores user-scalable=no for double-tap & pinch
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+let lastTouch = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouch < 350) e.preventDefault();   // swallow double-tap zoom
+  lastTouch = now;
+}, { passive: false });
 
 // ---------- sound engine (pure WebAudio, zero downloads) ----------
 let AC = null;
@@ -438,14 +447,17 @@ let camC;
     let r0=N, r1=-1, c0=N, c1=-1;
     for (let r=0;r<N;r++) for (let c=0;c<N;c++) if (on(r,c)){ r0=Math.min(r0,r); r1=Math.max(r1,r); c0=Math.min(c0,c); c1=Math.max(c1,c); }
     const w = (c1-c0+1)*S + 0.8, h = (r1-r0+1)*S + 0.8;
-    const aspect = engine.getRenderWidth()/engine.getRenderHeight();
+    const vw = (window.visualViewport ? visualViewport.width : innerWidth);
+    const vh = (window.visualViewport ? visualViewport.height : innerHeight);
+    const aspect = vw / vh;
     const vfov = camC.fov;                                   // vertical
     const hfov = 2*Math.atan(Math.tan(vfov/2)*aspect);
-    const availH = 0.62;                                     // fraction of screen height for the board (HUD + tabs eat the rest)
+    const availH = 0.55;                                     // fraction of screen height for the board (HUD + tabs eat the rest)
     const rH = (h/availH/2)/Math.tan(vfov/2);
     const rW = (w/2)/Math.tan(hfov/2)*1.1;
-    camC.radius = Math.max(rH, rW);
+    // ORDER MATTERS: setting .target rebuilds radius from the current position — target first, radius last
     camC.target = new BABYLON.Vector3((px(c0)+px(c1))/2, (py(r0)+py(r1))/2 - 0.15, 0);
+    camC.radius = Math.max(rH, rW);
   }
   function buildLevel(){
     grid.forEach(g => g && g.dispose()); backs.forEach(b => b.dispose());
@@ -573,11 +585,13 @@ let camC;
     else { sel = m; m.scaling.setAll(1.18); }
   });
   sC.attachControl();          // multi-scene: input must be attached explicitly
-  window._crush = { get sel(){ return !!sel; }, get moves(){ return movesLeft; } };
+  window._crush = { get sel(){ return !!sel; }, get moves(){ return movesLeft; }, get cam(){ return { r: camC.radius, tx: camC.target.x, ty: camC.target.y, fov: camC.fov, rw: engine.getRenderWidth(), rh: engine.getRenderHeight() }; } };
   const dbg = new URLSearchParams(location.search).get('lvl');
   if (dbg) lvl = +dbg;
   buildLevel();
-  addEventListener('resize', () => setTimeout(fitCamera, 100));
+  addEventListener('resize', () => setTimeout(() => { engine.resize(); fitCamera(); }, 120));
+  if (window.visualViewport) visualViewport.addEventListener('resize', () => setTimeout(() => { engine.resize(); fitCamera(); }, 120));
+  addEventListener('orientationchange', () => setTimeout(() => { engine.resize(); fitCamera(); }, 250));
 }
 
 // ---------- tab manager ----------
