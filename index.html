@@ -572,6 +572,8 @@ let camC;
     if (dr + dc === 1) swap(prev, m);
     else { sel = m; m.scaling.setAll(1.18); }
   });
+  sC.attachControl();          // multi-scene: input must be attached explicitly
+  window._crush = { get sel(){ return !!sel; }, get moves(){ return movesLeft; } };
   const dbg = new URLSearchParams(location.search).get('lvl');
   if (dbg) lvl = +dbg;
   buildLevel();
