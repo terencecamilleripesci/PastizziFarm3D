@@ -686,22 +686,25 @@ let camC;
 
 // ---------- tab manager ----------
 const scenes = { v: sV, s: sS, c: sC };
-let active = 'v';
-const tabs = { v: document.getElementById('tb-v'), s: document.getElementById('tb-s'), c: document.getElementById('tb-c') };
+let active = 'c';
+const tabs = { c: document.getElementById('tb-c'), g: document.getElementById('tb-g'), s: document.getElementById('tb-s') };
 const CRUSH_URL = 'https://terencecamilleripesci.github.io/Pastizicrush/?embed=1';
 const crushFrame = document.getElementById('crushFrame');
 function go(k){
   active = k;
   for (const key in tabs) tabs[key].classList.toggle('on', key === k);
   spinBtn.style.display = k === 's' ? 'block' : 'none';
-  document.getElementById('buildFab').style.display = k === 'v' ? 'block' : 'none';
-  if (k !== 'v') document.getElementById('buildPanel').style.display = 'none';
+  document.getElementById('buildFab').style.display = 'none';
+  document.getElementById('buildPanel').style.display = 'none';
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
   document.getElementById('lvlbar').style.display = 'none';   // original game has its own HUD
-  document.getElementById('hud').style.display = k === 'c' ? 'none' : 'flex';
-  if (k === 'c'){
+  document.getElementById('hud').style.display = k === 's' ? 'flex' : 'none';
+  if (k === 'c' || k === 'g'){
     if (!crushFrame.src) crushFrame.src = CRUSH_URL;
     crushFrame.style.display = 'block';
+    const steer = () => { try { crushFrame.contentWindow.postMessage({ pc_cmd: k === 'g' ? 'farm' : 'home' }, '*'); } catch (e) { } };
+    if (crushFrame.dataset.ready) steer();
+    else crushFrame.addEventListener('load', () => { crushFrame.dataset.ready = 1; setTimeout(steer, 900); }, { once: true });
   } else crushFrame.style.display = 'none';
   msgEl.textContent = '';
   sfx.click();
