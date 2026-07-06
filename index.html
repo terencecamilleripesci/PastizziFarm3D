@@ -66,9 +66,9 @@
   border:0;display:none;z-index:3;background:#140a08" allow="autoplay" title="Pastizzi Crush"></iframe>
 <canvas id="c"></canvas>
 <div id="tabs">
-  <button id="tb-v" class="on"><span>🏝️</span>VILLAGE</button>
+  <button id="tb-c" class="on"><span><img src="https://terencecamilleripesci.github.io/Pastizicrush/assets/logo.png" alt="" style="height:30px;width:auto;display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))"></span>CRUSH</button>
+  <button id="tb-g"><span>🌱</span>GARDEN</button>
   <button id="tb-s"><span>🎰</span>SLOT</button>
-  <button id="tb-c"><span><img src="https://terencecamilleripesci.github.io/Pastizicrush/assets/logo.png" alt="" style="height:30px;width:auto;display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))"></span>CRUSH</button>
 </div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
@@ -724,12 +724,12 @@ document.getElementById('buildFab').addEventListener('click', () => {
   if (show) bRefresh();
   sfx.click();
 });
-tabs.v.addEventListener('click', () => go('v'));
-tabs.s.addEventListener('click', () => go('s'));
 tabs.c.addEventListener('click', () => go('c'));
-go(new URLSearchParams(location.search).get('tab') || 'v'); hud();
+tabs.g.addEventListener('click', () => go('g'));
+tabs.s.addEventListener('click', () => go('s'));
+go(new URLSearchParams(location.search).get('tab') || 'c'); hud();
 
-engine.runRenderLoop(() => { if (active !== 'c') scenes[active].render(); });
+engine.runRenderLoop(() => { if (active === 's') scenes.s.render(); });
 addEventListener('resize', () => engine.resize());
 </script>
 </body>
