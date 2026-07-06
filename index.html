@@ -52,6 +52,8 @@
   <button class="bet on" data-b="1">x1</button><button class="bet" data-b="2">x2</button><button class="bet" data-b="5">x5</button><button class="bet" data-b="10">x10</button>
 </div>
 <button id="spin">SPIN</button>
+<button id="autoSpin" style="position:fixed;bottom:calc(94px + env(safe-area-inset-bottom));right:14px;z-index:5;display:none;
+  font:800 13px system-ui;color:#ffd98a;background:rgba(30,12,8,.9);border:2px solid #9c6f15;border-radius:999px;padding:10px 16px;cursor:pointer">AUTO ▶</button>
 <button id="buildFab" style="position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:5;
   font:900 18px system-ui;letter-spacing:1px;color:#1a1206;cursor:pointer;
   background:linear-gradient(180deg,#ffd97a,#e8a52a);border:3px solid #ffe9ad;border-radius:999px;
@@ -157,7 +159,10 @@ let spins = +(localStorage.pm_spins ?? 25);
 function save(){ localStorage.pm_coins = coins; localStorage.pm_spins = spins; localStorage.pm_ts = Date.now(); }
 const coinsEl = document.getElementById('coins'), spinsEl = document.getElementById('spins'),
       msgEl = document.getElementById('msg'), spinBtn = document.getElementById('spin');
-function hud(){ coinsEl.textContent = coins; spinsEl.textContent = spins; spinBtn.disabled = spinning || spins <= 0; }
+function hud(){ coinsEl.textContent = coins; spinsEl.textContent = spins;
+  spinBtn.disabled = spinning || spins < (typeof bet !== 'undefined' ? bet : 1);
+  spinBtn.textContent = 'SPIN (' + spins + ')' + (typeof bet !== 'undefined' && bet > 1 ? ' x' + bet : '');
+}
 function toast(s){ msgEl.textContent = s; clearTimeout(toast._t); toast._t = setTimeout(() => msgEl.textContent = '', 3200); }
 setInterval(() => { if (spins < CAP){ spins++; hud(); save(); } }, REGEN * 1000);
 
@@ -865,6 +870,7 @@ function doSpin(){
     if (P.c){ n = (P.c[0] + Math.floor(Math.random()*(P.c[1]-P.c[0]))) * bet; coins += n; }
     if (P.s){ n = (P.s[0] + Math.floor(Math.random()*(P.s[1]-P.s[0]+1))) * bet; spins += n; }
     toast(P.t.replace('{n}', n));
+    if (P.c) floatWin('+' + n + ' 🪙'); else if (P.s) floatWin('+' + n + ' 🎰');
     const jack = pi === 1;
     psCoins.manualEmitCount = jack ? 220 : 140;
     sS._cf.manualEmitCount = jack ? 300 : 120;
@@ -877,9 +883,27 @@ function doSpin(){
     let wl = 0;
     const wlI = setInterval(() => { sS._wlMat.alpha = sS._wlMat.alpha > 0 ? 0 : 0.9; if (++wl > 7){ clearInterval(wlI); sS._wlMat.alpha = 0; } }, 130);
     hud(); save();
+    if (window._autoOn && spins >= bet) setTimeout(() => { if (window._autoOn && !spinning) doSpin(); }, 1400);
+    else if (window._autoOn){ window._autoOn = false; document.getElementById('autoSpin').textContent = 'AUTO ▶'; }
   }, 120);
 }
 spinBtn.addEventListener('click', doSpin);
+window._autoOn = false;
+document.getElementById('autoSpin').addEventListener('click', function(){
+  window._autoOn = !window._autoOn;
+  this.textContent = window._autoOn ? 'AUTO ⏸' : 'AUTO ▶';
+  sfx.click();
+  if (window._autoOn && !spinning) doSpin();
+});
+function floatWin(txt){
+  const el = document.createElement('div');
+  el.textContent = txt;
+  el.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);z-index:30;pointer-events:none;' +
+    'font:900 34px system-ui;color:#FFE08A;text-shadow:0 3px 12px rgba(0,0,0,.8);transition:all 1.4s ease-out;opacity:1';
+  document.body.appendChild(el);
+  requestAnimationFrame(() => { el.style.top = '22%'; el.style.opacity = '0'; el.style.fontSize = '46px'; });
+  setTimeout(() => el.remove(), 1500);
+}
 
 // =================================================================
 // SCENE 3 — CRUSH: full level mode (shaped boards, moves, targets)
@@ -1088,6 +1112,8 @@ function go(k){
   active = k;
   backBtn.style.display = k === 'c' ? 'none' : 'block';
   spinBtn.style.display = k === 's' ? 'block' : 'none';
+  document.getElementById('autoSpin').style.display = k === 's' ? 'block' : 'none';
+  if (k !== 's' && window._autoOn){ window._autoOn = false; document.getElementById('autoSpin').textContent = 'AUTO ▶'; }
   document.getElementById('buildFab').style.display = k === 'g' ? 'block' : 'none';
   document.getElementById('gtutHelp').style.display = k === 'g' ? 'block' : 'none';
   if (k !== 'g'){ document.getElementById('buildPanel').style.display = 'none'; document.getElementById('gtut').style.display = 'none'; }
