@@ -62,14 +62,12 @@
   <div id="buildRows"></div>
 </div>
 <div id="flash"></div>
-<iframe id="crushFrame" style="position:fixed;left:0;right:0;top:0;bottom:52px;width:100%;height:calc(100dvh - 52px);
+<iframe id="crushFrame" style="position:fixed;left:0;right:0;top:0;bottom:0;width:100%;height:100dvh;
   border:0;display:none;z-index:3;background:#140a08" allow="autoplay" title="Pastizzi Crush"></iframe>
 <canvas id="c"></canvas>
-<div id="tabs">
-  <button id="tb-c" class="on"><span><img src="https://terencecamilleripesci.github.io/Pastizicrush/assets/logo.png" alt="" style="height:30px;width:auto;display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))"></span>CRUSH</button>
-  <button id="tb-g"><span>🌱</span>GARDEN</button>
-  <button id="tb-s"><span>🎰</span>SLOT</button>
-</div>
+<button id="backCrush" style="display:none;position:fixed;top:calc(10px + env(safe-area-inset-top));left:12px;z-index:20;
+  font:800 14px system-ui;color:#ffe08a;cursor:pointer;background:rgba(20,8,6,.85);border:2px solid #e8b54a;
+  border-radius:999px;padding:9px 16px">← CRUSH</button>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 <script>
@@ -725,12 +723,12 @@ let camC;
 // ---------- tab manager ----------
 const scenes = { v: sV, s: sS, c: sC };
 let active = 'c';
-const tabs = { c: document.getElementById('tb-c'), g: document.getElementById('tb-g'), s: document.getElementById('tb-s') };
+const backBtn = document.getElementById('backCrush');
 const CRUSH_URL = 'https://terencecamilleripesci.github.io/Pastizicrush/?embed=1';
 const crushFrame = document.getElementById('crushFrame');
 function go(k){
   active = k;
-  for (const key in tabs) tabs[key].classList.toggle('on', key === k);
+  backBtn.style.display = k === 'c' ? 'none' : 'block';
   spinBtn.style.display = k === 's' ? 'block' : 'none';
   document.getElementById('buildFab').style.display = 'none';
   document.getElementById('buildPanel').style.display = 'none';
@@ -748,6 +746,11 @@ function go(k){
 addEventListener('message', e => {
   const d = e.data || {};
   if (d.type !== 'pc') return;
+  if (d.ev === 'nav'){
+    if (d.to === 'garden') go('g');
+    else if (d.to === 'slot') go('s');
+    return;
+  }
   if (d.ev === 'win'){
     const bonus = 100 + (d.level || 1) * 15;
     coins += bonus; spins += 1; hud(); save();
@@ -762,9 +765,7 @@ document.getElementById('buildFab').addEventListener('click', () => {
   if (show) bRefresh();
   sfx.click();
 });
-tabs.c.addEventListener('click', () => go('c'));
-tabs.g.addEventListener('click', () => go('g'));
-tabs.s.addEventListener('click', () => go('s'));
+backBtn.addEventListener('click', () => go('c'));
 go(new URLSearchParams(location.search).get('tab') || 'c'); hud();
 
 engine.runRenderLoop(() => { if (active === 's') scenes.s.render(); else if (active === 'g') scenes.v.render(); });
