@@ -380,6 +380,28 @@ const sV = new BABYLON.Scene(engine);
   function dropIndicators(nd){
     if (nd && nd.ind){ nd.ind.bg.dispose(); nd.ind.ready.dispose(); nd.ind = null; }
   }
+  // fruit that grows ON the plant (stage 2), picked on collect
+  const FRUIT_COL = ['#E8402A', '#E8354C', '#F28C1E'];
+  const fruitMats = FRUIT_COL.map((c2, i2) => {
+    const m2 = new BABYLON.StandardMaterial('fr' + i2, sV);
+    m2.diffuseColor = BABYLON.Color3.FromHexString(c2);
+    m2.emissiveColor = BABYLON.Color3.FromHexString(c2).scale(0.35);
+    m2.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+    return m2;
+  });
+  const FRUIT_POS = [[0.34, 0.5, 0.2], [-0.3, 0.68, -0.22], [0.12, 0.84, -0.3]];
+  function mkFruit(ci, x, z){
+    const cr = CROPS[ci];
+    return FRUIT_POS.map(p2 => {
+      const f2 = BABYLON.MeshBuilder.CreateSphere('fru', { diameter: ci === 2 ? 0.34 : 0.24 }, sV);
+      f2.material = fruitMats[ci];
+      f2.position.set(x + p2[0], 0.56 + p2[1] * cr.h, z + p2[2]);
+      f2.isPickable = false;
+      f2.scaling.setAll(0.01);
+      return f2;
+    });
+  }
+  function dropFruit(nd){ if (nd && nd.fruit){ nd.fruit.forEach(f2 => f2.dispose()); nd.fruit = null; } }
   function mkSoil(x, z, wet){
     const b = BABYLON.MeshBuilder.CreateBox('so', { width: TILE-0.16, height: 0.14, depth: TILE-0.16 }, sV);
     b.position.set(x, 0.5, z); b.material = wet ? soilWet : soilMat; b.receiveShadows = true;
@@ -458,7 +480,7 @@ const sV = new BABYLON.Scene(engine);
       harvestTile(k);
     } else if (tool === 'clear'){
       if (!st){ return; }
-      if (gNodes[k]){ if (gNodes[k].crop) gNodes[k].crop.dispose(); dropIndicators(gNodes[k]); if (gNodes[k].soil) gNodes[k].soil.dispose(); delete gNodes[k]; }
+      if (gNodes[k]){ if (gNodes[k].crop) gNodes[k].crop.dispose(); dropFruit(gNodes[k]); dropIndicators(gNodes[k]); if (gNodes[k].soil) gNodes[k].soil.dispose(); delete gNodes[k]; }
       delete garden[k];
       sfx.click(); toast('🧹 Cleared');
     }
@@ -471,11 +493,12 @@ const sV = new BABYLON.Scene(engine);
     const dur = cr.mins * 60000 / ((st.w ? 2 : 1) * growBoost());
     if (Date.now() - st.t < dur){ toast('Still growing… ' + Math.ceil((dur - (Date.now() - st.t)) / 60000) + ' min left'); return false; }
     barn[st.c] = (barn[st.c] || 0) + 1;
+    dropFruit(gNodes[k]);   // the fruit is what you pick
     if (cr.regrow){
-      // multi-harvest: only the FRUIT is picked — plant stays and regrows
+      // multi-harvest: plant stays, new fruit grows back
       st.t = Date.now(); st.w = 0; st.mins = cr.regrow;
       if (gNodes[k].soil) gNodes[k].soil.material = soilMat;
-      toast('🧺 ' + cr.e + ' picked → barn! Plant regrows in ' + cr.regrow + ' min');
+      toast('🧺 ' + cr.e + ' picked → barn! New fruit in ' + cr.regrow + ' min');
     } else {
       if (gNodes[k].crop){ gNodes[k].crop.dispose(); gNodes[k].crop = null; }
       dropIndicators(gNodes[k]);
@@ -516,6 +539,13 @@ const sV = new BABYLON.Scene(engine);
   rebuildGarden();
   window._garden = { get tiles(){ return Object.keys(garden).length; }, get state(){ return garden; }, setTool(t2){ tool = t2; gridNode.setEnabled(t2 === 'soil'); }, tap: gardenTap, get grid(){ return gridNode.isEnabled(); } };
   window._gardenSeed = (i2) => { seedSel = i2; };
+  window.countFru = () => sV.meshes.filter(m3 => m3.name === 'fru').length;
+  window._dbgTile = (k3) => { const st = garden[k3], nd = gNodes[k3];
+    if (!st) return { st: null };
+    const cr = CROPS[st.c] || {};
+    const dur = (st.mins || cr.mins) * 60000 / ((st.w ? 2 : 1) * growBoost());
+    return { k: st.k, tpl: cropTpl.map(x => !!x), crop: !!(nd && nd.crop), fruit: !!(nd && nd.fruit),
+             pct: st.k === 'crop' ? Math.min(1, (Date.now() - st.t) / dur) : -1, loops: window._loopCount || 0 }; };
   function refreshShop(){ if (document.getElementById('shopView').style.display === 'block') window._shop.render(); }
   window._shop = {
     render(){
@@ -609,6 +639,7 @@ const sV = new BABYLON.Scene(engine);
   sV.onBeforeRenderObservable.add(() => {
     const dt = engine.getDeltaTime()/1000; t += dt;
     if (luzzu){ luzzu.position.y = -3.3 + Math.sin(t*1.1)*0.07; luzzu.rotation.z = Math.sin(t*1.4)*0.05; }
+    window._loopCount = (window._loopCount || 0) + 1;
     // crop growth + ready-bounce
     for (const k in garden){
       const st = garden[k];
@@ -618,11 +649,19 @@ const sV = new BABYLON.Scene(engine);
       const cr = CROPS[st.c];
       const dur = (st.mins || cr.mins) * 60000 / ((st.w ? 2 : 1) * growBoost());
       const pct = Math.min(1, (Date.now() - st.t) / dur);
-      const lo = st.mins ? 0.7 : 0.25;   // regrowing plants stay large, fruit phase 70→100%
-      const sc = nd.crop._base * (lo + (1 - lo) * pct);
+      // two stages: the PLANT grows first, then the FRUIT grows on it
+      const regrowCycle = !!st.mins;
+      const plantPct = regrowCycle ? 1 : Math.min(1, pct / 0.65);
+      const fruitPct = regrowCycle ? pct : Math.max(0, (pct - 0.65) / 0.35);
+      nd.crop.scaling.setAll(nd.crop._base * (0.25 + 0.75 * plantPct));
+      if (fruitPct > 0 && !nd.fruit){ const [x2, z2] = k.split('_').map(Number); nd.fruit = mkFruit(st.c, x2, z2); }
+      if (nd.fruit){
+        const fs = Math.max(0.01, fruitPct) * (pct >= 1 ? 1 + Math.sin(t * 4) * 0.12 : 1);
+        nd.fruit.forEach(f2 => f2.scaling.setAll(fs));
+      }
       if (!nd.ind){ const [x2, z2] = k.split('_').map(Number); nd.ind = mkIndicators(x2, z2); }
       if (pct >= 1){
-        nd.crop.scaling.setAll(sc * (1 + Math.sin(t * 3) * 0.05)); nd.crop.rotation.y += dt * 0.4;
+        nd.crop.rotation.y += dt * 0.3;
         nd.ind.bg.setEnabled(false);
         nd.ind.ready.setEnabled(true);
         nd.ind.ready.position.y = 1.95 + Math.sin(t * 4) * 0.12;   // bouncing collect indicator
