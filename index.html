@@ -63,7 +63,6 @@
     <button class="tl on" data-t="soil">⛏️ Soil 🪙25</button>
     <button class="tl" data-t="plant">🌱 Plant</button>
     <button class="tl" data-t="water">💧 Water 🪙5</button>
-    <button class="tl" data-t="harvest">🧺 Harvest</button>
     <button class="tl" data-t="clear">🧹 Clear</button>
     <button class="tl" id="shopBtn">🏪 Shop</button>
   </div>
@@ -81,6 +80,25 @@
 .tl.on,.sd.on{opacity:1;border-color:#ffe08a;box-shadow:0 0 10px rgba(255,214,90,.5)}
 </style>
 <div id="flash"></div>
+<div id="gtut" style="display:none;position:fixed;inset:0;background:rgba(10,4,2,.72);z-index:40">
+  <img id="gtutM" src="https://terencecamilleripesci.github.io/Pastizicrush/assets/mascot-win.webp" alt=""
+    style="position:absolute;bottom:calc(30px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(45vw,190px);filter:drop-shadow(0 10px 24px rgba(0,0,0,.6))">
+  <div id="gtutB" style="position:absolute;bottom:calc(240px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+    width:min(86vw,340px);background:#FFF8E8;border:3px solid #E8B54A;border-radius:20px;padding:18px 18px 14px;
+    box-shadow:0 16px 40px rgba(0,0,0,.5)">
+    <div id="gtutTxt" style="font:600 16px system-ui;color:#4A2410;line-height:1.5;min-height:4.2em"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+      <small id="gtutN" style="font:700 12px system-ui;color:#9c6f15">1/5</small>
+      <button id="gtutNext" style="font:800 15px system-ui;color:#1a1206;background:linear-gradient(180deg,#ffd97a,#e8a52a);
+        border:2px solid #ffe9ad;border-radius:999px;padding:10px 26px;cursor:pointer">NEXT ➜</button>
+    </div>
+  </div>
+  <div id="gtutB2" style="position:absolute;bottom:calc(228px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) rotate(45deg);
+    width:22px;height:22px;background:#FFF8E8;border-right:3px solid #E8B54A;border-bottom:3px solid #E8B54A"></div>
+</div>
+<button id="gtutHelp" style="display:none;position:fixed;top:calc(10px + env(safe-area-inset-top));right:12px;z-index:20;
+  font:800 16px system-ui;color:#ffe08a;cursor:pointer;background:rgba(20,8,6,.85);border:2px solid #e8b54a;
+  border-radius:50%;width:40px;height:40px">?</button>
 <iframe id="crushFrame" style="position:fixed;left:0;right:0;top:0;bottom:0;width:100%;height:100dvh;
   border:0;display:none;z-index:3;background:#140a08" allow="autoplay" title="Pastizzi Crush"></iframe>
 <canvas id="c"></canvas>
@@ -324,6 +342,44 @@ const sV = new BABYLON.Scene(engine);
   soilMat.diffuseTexture = new BABYLON.Texture('assets/tex_soil.png', sV);
   soilMat.specularColor = BABYLON.Color3.Black();
   const soilWet = soilMat.clone('soilwet'); soilWet.diffuseColor = new BABYLON.Color3(0.55,0.5,0.45);
+  // tile grid shown while the Soil tool is active
+  const gridNode = new BABYLON.TransformNode('grid', sV);
+  const gridMat = new BABYLON.StandardMaterial('gm', sV);
+  gridMat.emissiveColor = new BABYLON.Color3(1, 1, 1); gridMat.alpha = 0.32; gridMat.disableLighting = true;
+  for (let g2 = -RANGE - 1; g2 <= RANGE + 1; g2 += TILE){
+    const lx = BABYLON.MeshBuilder.CreateBox('gl', { width: 0.045, height: 0.02, depth: (RANGE + 1) * 2 }, sV);
+    lx.position.set(g2, 0.475, 0); lx.material = gridMat; lx.parent = gridNode; lx.isPickable = false;
+    const lz = BABYLON.MeshBuilder.CreateBox('gl', { width: (RANGE + 1) * 2, height: 0.02, depth: 0.045 }, sV);
+    lz.position.set(0, 0.475, g2); lz.material = gridMat; lz.parent = gridNode; lz.isPickable = false;
+  }
+  gridNode.setEnabled(true);   // soil is the default tool
+  // indicator materials (shared)
+  const barBgMat = new BABYLON.StandardMaterial('bbg', sV);
+  barBgMat.emissiveColor = new BABYLON.Color3(0.1, 0.07, 0.05); barBgMat.disableLighting = true;
+  const barFillMat = new BABYLON.StandardMaterial('bfl', sV);
+  barFillMat.emissiveColor = new BABYLON.Color3(0.35, 0.85, 0.3); barFillMat.disableLighting = true;
+  const readyTex = new BABYLON.DynamicTexture('rdy', { width: 128, height: 128 }, sV);
+  const rctx = readyTex.getContext();
+  rctx.font = '96px serif'; rctx.textAlign = 'center'; rctx.fillText('🧺', 64, 100); readyTex.update();
+  readyTex.hasAlpha = true;
+  const readyMat = new BABYLON.StandardMaterial('rdm', sV);
+  readyMat.diffuseTexture = readyTex; readyMat.emissiveTexture = readyTex;
+  readyMat.useAlphaFromDiffuseTexture = true; readyMat.disableLighting = true; readyMat.backFaceCulling = false;
+  function mkIndicators(x, z){
+    const bg = BABYLON.MeshBuilder.CreatePlane('ib', { width: 1.3, height: 0.16 }, sV);
+    bg.position.set(x, 1.75, z); bg.material = barBgMat;
+    bg.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; bg.isPickable = false;
+    const fill = BABYLON.MeshBuilder.CreatePlane('if', { width: 1.24, height: 0.10 }, sV);
+    fill.parent = bg; fill.position.z = -0.01; fill.material = barFillMat; fill.isPickable = false;
+    const ready = BABYLON.MeshBuilder.CreatePlane('ir', { width: 0.9, height: 0.9 }, sV);
+    ready.position.set(x, 1.95, z); ready.material = readyMat;
+    ready.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; ready.isPickable = false;
+    ready.setEnabled(false);
+    return { bg, fill, ready };
+  }
+  function dropIndicators(nd){
+    if (nd && nd.ind){ nd.ind.bg.dispose(); nd.ind.ready.dispose(); nd.ind = null; }
+  }
   function mkSoil(x, z, wet){
     const b = BABYLON.MeshBuilder.CreateBox('so', { width: TILE-0.16, height: 0.14, depth: TILE-0.16 }, sV);
     b.position.set(x, 0.5, z); b.material = wet ? soilWet : soilMat; b.receiveShadows = true;
@@ -369,6 +425,12 @@ const sV = new BABYLON.Scene(engine);
     const x = Math.max(-RANGE, Math.min(RANGE, Math.round(px2 / TILE) * TILE));
     const z = Math.max(-RANGE, Math.min(RANGE, Math.round(pz / TILE) * TILE));
     const k = keyOf(x, z), st = garden[k];
+    // ready crop? tap collects it — no tool needed
+    if (st && st.k === 'crop'){
+      const cr0 = CROPS[st.c];
+      const dur0 = (st.mins || cr0.mins) * 60000 / ((st.w ? 2 : 1) * growBoost());
+      if (Date.now() - st.t >= dur0){ harvestTile(k); return; }
+    }
     if (tool === 'soil'){
       if (st){ toast('Already tilled — pick an empty spot'); return; }
       if (coins < SOIL_COST){ toast('Soil costs 🪙' + SOIL_COST + ' — play Crush to earn!'); return; }
@@ -396,7 +458,7 @@ const sV = new BABYLON.Scene(engine);
       harvestTile(k);
     } else if (tool === 'clear'){
       if (!st){ return; }
-      if (gNodes[k]){ if (gNodes[k].crop) gNodes[k].crop.dispose(); if (gNodes[k].soil) gNodes[k].soil.dispose(); delete gNodes[k]; }
+      if (gNodes[k]){ if (gNodes[k].crop) gNodes[k].crop.dispose(); dropIndicators(gNodes[k]); if (gNodes[k].soil) gNodes[k].soil.dispose(); delete gNodes[k]; }
       delete garden[k];
       sfx.click(); toast('🧹 Cleared');
     }
@@ -416,6 +478,7 @@ const sV = new BABYLON.Scene(engine);
       toast('🧺 ' + cr.e + ' picked → barn! Plant regrows in ' + cr.regrow + ' min');
     } else {
       if (gNodes[k].crop){ gNodes[k].crop.dispose(); gNodes[k].crop = null; }
+      dropIndicators(gNodes[k]);
       if (gNodes[k].soil) gNodes[k].soil.material = soilMat;
       garden[k] = { k: 'soil' };
       toast('🧺 ' + cr.e + ' ' + cr.n + ' → barn! Sell it in the 🏪 shop');
@@ -451,7 +514,7 @@ const sV = new BABYLON.Scene(engine);
     if (hit.hit && hit.pickedPoint) gardenTap(hit.pickedPoint.x, hit.pickedPoint.z);
   });
   rebuildGarden();
-  window._garden = { get tiles(){ return Object.keys(garden).length; }, get state(){ return garden; }, setTool(t2){ tool = t2; }, tap: gardenTap };
+  window._garden = { get tiles(){ return Object.keys(garden).length; }, get state(){ return garden; }, setTool(t2){ tool = t2; gridNode.setEnabled(t2 === 'soil'); }, tap: gardenTap, get grid(){ return gridNode.isEnabled(); } };
   window._gardenSeed = (i2) => { seedSel = i2; };
   function refreshShop(){ if (document.getElementById('shopView').style.display === 'block') window._shop.render(); }
   window._shop = {
@@ -557,8 +620,17 @@ const sV = new BABYLON.Scene(engine);
       const pct = Math.min(1, (Date.now() - st.t) / dur);
       const lo = st.mins ? 0.7 : 0.25;   // regrowing plants stay large, fruit phase 70→100%
       const sc = nd.crop._base * (lo + (1 - lo) * pct);
-      if (pct >= 1){ nd.crop.scaling.setAll(sc * (1 + Math.sin(t * 3) * 0.05)); nd.crop.rotation.y += dt * 0.4; }
-      else nd.crop.scaling.setAll(sc);
+      if (!nd.ind){ const [x2, z2] = k.split('_').map(Number); nd.ind = mkIndicators(x2, z2); }
+      if (pct >= 1){
+        nd.crop.scaling.setAll(sc * (1 + Math.sin(t * 3) * 0.05)); nd.crop.rotation.y += dt * 0.4;
+        nd.ind.bg.setEnabled(false);
+        nd.ind.ready.setEnabled(true);
+        nd.ind.ready.position.y = 1.95 + Math.sin(t * 4) * 0.12;   // bouncing collect indicator
+      } else {
+        nd.ind.bg.setEnabled(true); nd.ind.ready.setEnabled(false);
+        nd.ind.fill.scaling.x = Math.max(0.02, pct);
+        nd.ind.fill.position.x = -0.62 * (1 - pct);                // anchor the fill left
+      }
     }
 
     if (sV._clouds) sV._clouds.forEach((cl, i2) => {
@@ -978,7 +1050,9 @@ function go(k){
   backBtn.style.display = k === 'c' ? 'none' : 'block';
   spinBtn.style.display = k === 's' ? 'block' : 'none';
   document.getElementById('buildFab').style.display = k === 'g' ? 'block' : 'none';
-  if (k !== 'g') document.getElementById('buildPanel').style.display = 'none';
+  document.getElementById('gtutHelp').style.display = k === 'g' ? 'block' : 'none';
+  if (k !== 'g'){ document.getElementById('buildPanel').style.display = 'none'; document.getElementById('gtut').style.display = 'none'; }
+  else if (!localStorage.pm_gtut) gtutShow(0);
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
   document.getElementById('lvlbar').style.display = 'none';   // original game has its own HUD
   document.getElementById('hud').style.display = k === 'c' ? 'none' : 'flex';
@@ -1024,6 +1098,27 @@ document.querySelectorAll('.sd').forEach(b => b.addEventListener('click', () => 
   window._gardenSeed(+b.dataset.s);
   sfx.click();
 }));
+const GTUT = [
+  "Merħba to your garden, ħabib! 🥟 This island is YOURS. Tap the 🧰 GARDEN button to open your tools!",
+  "⛏️ SOIL tool: see the grid on the grass? Tap any square to till it into soil for 🪙25.",
+  "🌱 PLANT: pick a seed — 🍅 Tadam grows in 45 seconds! 💧 Water it to grow TWICE as fast.",
+  "Watch the green bar grow. When the 🧺 basket bounces — just TAP the plant to collect it!",
+  "🏪 SHOP: sell your harvest for coins, buy seed 5-packs, and hire helpers — Farmer Pawlu even works while you play Crush! 🥟"
+];
+let gtutStep = 0;
+function gtutShow(i2){
+  gtutStep = i2;
+  document.getElementById('gtutTxt').textContent = GTUT[i2];
+  document.getElementById('gtutN').textContent = (i2 + 1) + '/' + GTUT.length;
+  document.getElementById('gtutNext').textContent = i2 === GTUT.length - 1 ? 'LET\'S GROW! 🌱' : 'NEXT ➜';
+  document.getElementById('gtut').style.display = 'block';
+}
+document.getElementById('gtutNext').addEventListener('click', () => {
+  sfx.click();
+  if (gtutStep + 1 < GTUT.length) gtutShow(gtutStep + 1);
+  else { document.getElementById('gtut').style.display = 'none'; localStorage.pm_gtut = 1; }
+});
+document.getElementById('gtutHelp').addEventListener('click', () => { sfx.click(); gtutShow(0); });
 backBtn.addEventListener('click', () => go('c'));
 go(new URLSearchParams(location.search).get('tab') || 'c'); hud();
 
