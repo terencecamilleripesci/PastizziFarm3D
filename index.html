@@ -195,12 +195,38 @@ window.bBuy = function(i){
 // =================================================================
 const sV = new BABYLON.Scene(engine);
 {
-  sV.clearColor = BABYLON.Color4.FromHexString('#9E9AC4FF');
+  sV.clearColor = BABYLON.Color4.FromHexString('#8FB8DDFF');
+  // sunny sky dome with soft gradient
+  const skyTex = new BABYLON.DynamicTexture('sky', {width:16, height:256}, sV);
+  const skx = skyTex.getContext();
+  const skg = skx.createLinearGradient(0,0,0,256);
+  skg.addColorStop(0, '#5E9FD4'); skg.addColorStop(0.55, '#A7CBE8'); skg.addColorStop(1, '#F2E2C4');
+  skx.fillStyle = skg; skx.fillRect(0,0,16,256); skyTex.update();
+  const skyMat = new BABYLON.StandardMaterial('skym', sV);
+  skyMat.emissiveTexture = skyTex; skyMat.disableLighting = true;
+  skyMat.backFaceCulling = false;
+  const sky = BABYLON.MeshBuilder.CreateSphere('sky', {diameter:180, sideOrientation: BABYLON.Mesh.BACKSIDE}, sV);
+  sky.material = skyMat;
+  // drifting clouds
+  const cloudM = new BABYLON.StandardMaterial('cl', sV);
+  cloudM.emissiveColor = new BABYLON.Color3(1,1,1); cloudM.disableLighting = true; cloudM.alpha = 0.92;
+  const clouds = [];
+  for (let ci = 0; ci < 4; ci++){
+    const cl = new BABYLON.TransformNode('cl'+ci, sV);
+    for (let b = 0; b < 3; b++){
+      const s2 = BABYLON.MeshBuilder.CreateSphere('cb', {diameterX: 5-b, diameterY: 1.6, diameterZ: 2.6}, sV);
+      s2.material = cloudM; s2.parent = cl; s2.position.x = b*1.8 - 1.8;
+    }
+    cl.position.set(-30 + ci*18, 14 + (ci%2)*4, -14 + ci*9);
+    clouds.push(cl);
+  }
+  sV._clouds = clouds;
   const cam = new BABYLON.ArcRotateCamera('cv', -Math.PI/4, 0.92, 36, new BABYLON.Vector3(0,-0.8,0), sV);
   // NO attachControl — screen locked
   new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), sV).intensity = 0.65;
   const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.6,-1,-0.4), sV);
-  sun.position = new BABYLON.Vector3(18,26,14); sun.intensity = 1.15;
+  sun.position = new BABYLON.Vector3(18,26,14); sun.intensity = 1.3;
+  sun.diffuse = BABYLON.Color3.FromHexString('#FFF3DC');
   const sg = new BABYLON.ShadowGenerator(1536, sun);
   sg.useBlurExponentialShadowMap = true; sg.blurKernel = 24;
   const mat = hex => { const m = new BABYLON.StandardMaterial('m', sV);
@@ -219,8 +245,33 @@ const sV = new BABYLON.Scene(engine);
   const sea = BABYLON.MeshBuilder.CreateGround('sea',{width:70,height:70},sV);
   sea.position.y = -3.55;
   const sm = new BABYLON.StandardMaterial('sea',sV);
-  sm.diffuseColor = BABYLON.Color3.FromHexString('#2E7FA6');
-  sm.specularColor = new BABYLON.Color3(0.12,0.14,0.16); sea.material = sm; sea.receiveShadows = true;
+  sm.diffuseColor = BABYLON.Color3.FromHexString('#2E86B5');
+  sm.specularColor = new BABYLON.Color3(0.25,0.28,0.3); sm.specularPower = 96;
+  sea.material = sm; sea.receiveShadows = true;
+  // shallow turquoise ring around the island
+  const shallow = BABYLON.MeshBuilder.CreateGround('sh', {width:24, height:24}, sV);
+  shallow.position.y = -3.5;
+  const shm = new BABYLON.StandardMaterial('shm', sV);
+  shm.diffuseColor = BABYLON.Color3.FromHexString('#48B2C9'); shm.alpha = 0.55;
+  shm.specularColor = BABYLON.Color3.Black();
+  shallow.material = shm;
+  // flowers around the grass edge
+  const FL = ['#E8557C','#F2B33D','#B265D8','#F2F2F2'];
+  for (let fi = 0; fi < 14; fi++){
+    const a2 = fi/14 * Math.PI*2;
+    const fx = Math.cos(a2)*6.9 + (Math.random()-0.5), fz = Math.sin(a2)*6.9 + (Math.random()-0.5);
+    if (Math.abs(fx) > 7.4 || Math.abs(fz) > 7.4) continue;
+    const st2 = BABYLON.MeshBuilder.CreateCylinder('fs', {height:0.34, diameter:0.045}, sV);
+    st2.position.set(fx, 0.62, fz);
+    const fm2 = new BABYLON.StandardMaterial('fm'+fi, sV);
+    fm2.diffuseColor = BABYLON.Color3.FromHexString('#3E7A33'); st2.material = fm2;
+    const bl = BABYLON.MeshBuilder.CreateSphere('fb', {diameter:0.22}, sV);
+    bl.position.set(fx, 0.82, fz);
+    const bm2 = new BABYLON.StandardMaterial('bm'+fi, sV);
+    bm2.diffuseColor = BABYLON.Color3.FromHexString(FL[fi%4]);
+    bm2.emissiveColor = BABYLON.Color3.FromHexString(FL[fi%4]).scale(0.25);
+    bl.material = bm2;
+  }
   box(3.4,0.35,2.2, -8.2,-2.4,5.6, mat('#855C33'));
   let luzzu = null, walker = null, dogA = null;
   let wt = new BABYLON.Vector3(3,0.55,2), dt2 = new BABYLON.Vector3(-2,0.55,3);
@@ -282,6 +333,10 @@ const sV = new BABYLON.Scene(engine);
       return tgt;
     };
     wt = mv(walker, wt, 1.1); dt2 = mv(dogA, dt2, 1.6);
+    if (sV._clouds) sV._clouds.forEach((cl, i2) => {
+      cl.position.x += dt * (0.25 + i2*0.07);
+      if (cl.position.x > 34) cl.position.x = -34;
+    });
   });
 }
 
@@ -694,17 +749,14 @@ function go(k){
   active = k;
   for (const key in tabs) tabs[key].classList.toggle('on', key === k);
   spinBtn.style.display = k === 's' ? 'block' : 'none';
-  document.getElementById('buildFab').style.display = 'none';
-  document.getElementById('buildPanel').style.display = 'none';
+  document.getElementById('buildFab').style.display = k === 'g' ? 'block' : 'none';
+  if (k !== 'g') document.getElementById('buildPanel').style.display = 'none';
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
   document.getElementById('lvlbar').style.display = 'none';   // original game has its own HUD
-  document.getElementById('hud').style.display = k === 's' ? 'flex' : 'none';
-  if (k === 'c' || k === 'g'){
+  document.getElementById('hud').style.display = k === 'c' ? 'none' : 'flex';
+  if (k === 'c'){
     if (!crushFrame.src) crushFrame.src = CRUSH_URL;
     crushFrame.style.display = 'block';
-    const steer = () => { try { crushFrame.contentWindow.postMessage({ pc_cmd: k === 'g' ? 'farm' : 'home' }, '*'); } catch (e) { } };
-    if (crushFrame.dataset.ready) steer();
-    else crushFrame.addEventListener('load', () => { crushFrame.dataset.ready = 1; setTimeout(steer, 900); }, { once: true });
   } else crushFrame.style.display = 'none';
   msgEl.textContent = '';
   sfx.click();
@@ -732,7 +784,7 @@ tabs.g.addEventListener('click', () => go('g'));
 tabs.s.addEventListener('click', () => go('s'));
 go(new URLSearchParams(location.search).get('tab') || 'c'); hud();
 
-engine.runRenderLoop(() => { if (active === 's') scenes.s.render(); });
+engine.runRenderLoop(() => { if (active === 's') scenes.s.render(); else if (active === 'g') scenes.v.render(); });
 addEventListener('resize', () => engine.resize());
 </script>
 </body>
