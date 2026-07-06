@@ -55,12 +55,31 @@
 <button id="buildFab" style="position:fixed;bottom:calc(84px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);z-index:5;
   font:900 18px system-ui;letter-spacing:1px;color:#1a1206;cursor:pointer;
   background:linear-gradient(180deg,#ffd97a,#e8a52a);border:3px solid #ffe9ad;border-radius:999px;
-  padding:12px 44px;box-shadow:0 6px 0 #9c6f15,0 12px 26px rgba(0,0,0,.55)">🏗️ BUILD</button>
+  padding:12px 44px;box-shadow:0 6px 0 #9c6f15,0 12px 26px rgba(0,0,0,.55)">🧰 GARDEN</button>
 <div id="buildPanel" style="position:fixed;left:12px;right:12px;bottom:calc(150px + env(safe-area-inset-bottom));z-index:5;display:none;
-  background:rgba(16,7,5,.96);border:3px solid #e8b54a;border-radius:18px;padding:14px 12px 10px">
-  <div style="text-align:center;font:900 16px system-ui;color:#ffe08a;margin-bottom:8px">🏗️ Build <span id="bvName">Birgu</span> — <span id="bvStars">0</span>/25 ⭐</div>
-  <div id="buildRows"></div>
+  background:rgba(16,7,5,.96);border:3px solid #e8b54a;border-radius:18px;padding:14px 12px 12px">
+  <div style="text-align:center;font:900 15px system-ui;color:#ffe08a;margin-bottom:10px">🧰 Pick a tool, then tap the island</div>
+  <div id="toolRow" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <button class="tl on" data-t="soil">⛏️ Soil 🪙25</button>
+    <button class="tl" data-t="plant">🌱 Plant</button>
+    <button class="tl" data-t="water">💧 Water 🪙5</button>
+    <button class="tl" data-t="harvest">🧺 Harvest</button>
+    <button class="tl" data-t="clear">🧹 Clear</button>
+    <button class="tl" id="shopBtn">🏪 Shop</button>
+  </div>
+  <div id="shopView" style="display:none;margin-top:10px"></div>
+  <div id="seedRow" style="display:none;gap:8px;justify-content:center;margin-top:10px">
+    <button class="sd on" data-s="0">🍅 Tadam 🪙10<br><small>45 sec · +40</small></button>
+    <button class="sd" data-s="1">🍓 Frawli 🪙25<br><small>3 min · +120</small></button>
+    <button class="sd" data-s="2">🎃 Qara 🪙60<br><small>8 min · +320</small></button>
+  </div>
 </div>
+<style>
+.tl,.sd{font:800 13px system-ui;color:#ffd98a;background:rgba(30,12,8,.9);border:2px solid #9c6f15;
+  border-radius:12px;padding:9px 12px;cursor:pointer;opacity:.55;text-align:center;line-height:1.3}
+.sd small{font-weight:600;color:#c9a05a}
+.tl.on,.sd.on{opacity:1;border-color:#ffe08a;box-shadow:0 0 10px rgba(255,214,90,.5)}
+</style>
 <div id="flash"></div>
 <iframe id="crushFrame" style="position:fixed;left:0;right:0;top:0;bottom:0;width:100%;height:100dvh;
   border:0;display:none;z-index:3;background:#140a08" allow="autoplay" title="Pastizzi Crush"></iframe>
@@ -236,7 +255,8 @@ const sV = new BABYLON.Scene(engine);
   const box = (w,h,d,x,y,z,m) => { const b = BABYLON.MeshBuilder.CreateBox('b',{width:w,height:h,depth:d},sV);
     b.position.set(x,y,z); b.material = m; b.receiveShadows = true; sg.addShadowCaster(b); return b; };
   box(16,3.4,16, 0,-1.7,0, tmat('assets/tex_stone.png',5));
-  box(15.6,0.5,15.6, 0,0.2,0, tmat('assets/tex_grass.png',6));
+  const grassTop = box(15.6,0.5,15.6, 0,0.2,0, tmat('assets/tex_grass.png',6));
+  sV._grassTop = grassTop;
   const sea = BABYLON.MeshBuilder.CreateGround('sea',{width:70,height:70},sV);
   sea.position.y = -3.55;
   const sm = new BABYLON.StandardMaterial('sea',sV);
@@ -250,23 +270,7 @@ const sV = new BABYLON.Scene(engine);
   shm.diffuseColor = BABYLON.Color3.FromHexString('#48B2C9'); shm.alpha = 0.55;
   shm.specularColor = BABYLON.Color3.Black();
   shallow.material = shm;
-  // flowers around the grass edge
-  const FL = ['#E8557C','#F2B33D','#B265D8','#F2F2F2'];
-  for (let fi = 0; fi < 14; fi++){
-    const a2 = fi/14 * Math.PI*2;
-    const fx = Math.cos(a2)*6.9 + (Math.random()-0.5), fz = Math.sin(a2)*6.9 + (Math.random()-0.5);
-    if (Math.abs(fx) > 7.4 || Math.abs(fz) > 7.4) continue;
-    const st2 = BABYLON.MeshBuilder.CreateCylinder('fs', {height:0.34, diameter:0.045}, sV);
-    st2.position.set(fx, 0.62, fz);
-    const fm2 = new BABYLON.StandardMaterial('fm'+fi, sV);
-    fm2.diffuseColor = BABYLON.Color3.FromHexString('#3E7A33'); st2.material = fm2;
-    const bl = BABYLON.MeshBuilder.CreateSphere('fb', {diameter:0.22}, sV);
-    bl.position.set(fx, 0.82, fz);
-    const bm2 = new BABYLON.StandardMaterial('bm'+fi, sV);
-    bm2.diffuseColor = BABYLON.Color3.FromHexString(FL[fi%4]);
-    bm2.emissiveColor = BABYLON.Color3.FromHexString(FL[fi%4]).scale(0.25);
-    bl.material = bm2;
-  }
+
   let luzzu = null, walker = null, dogA = null;
   let wt = new BABYLON.Vector3(3,0.55,2), dt2 = new BABYLON.Vector3(-2,0.55,3);
   const place = (file,h,x,y,z,ry,cb) => {
@@ -293,27 +297,270 @@ const sV = new BABYLON.Scene(engine);
     if (i >= 0) bApply(i);
   };
   place('luzzu.glb',1.9,-5.6,-3.3,7.6,0.44,(r,a)=>{ luzzu=r; reg('luzzu', 1.9, -3.3)(r, a); });
-  place('man_walk.glb',1.7,3,0.55,2,0,(r,a)=>{ walker=r; a.forEach(x=>x.start(true)); });
-  place('dog_a.glb',0,0,0,0,0,(r,a)=>{ r.scaling.setAll(0.45); r.position.set(-2,0.55,3);
-    const w = a.find(x=>/Walk/i.test(x.name)); if (w) w.start(true); dogA = r; });
-  place('dog_b.glb',0,0,0,0,0,(r,a)=>{ r.scaling.setAll(0.4); r.position.set(1.6,0.55,4.2); r.rotation.y = 2.4;
-    const idle = a.find(x=>/Idle/i.test(x.name)) || a[0]; if (idle) idle.start(true);
-    const jump = a.find(x=>/Jump/i.test(x.name));
-    if (jump) setInterval(()=>{ idle&&idle.stop(); jump.start(false);
-      jump.onAnimationGroupEndObservable.addOnce(()=> idle && idle.start(true)); }, 6000); });
+
+  // ---------- GARDEN FARM ENGINE ----------
+  const CROPS = [
+    { n: 'Tadam',  e: '🍅', file: 'tomato.glb',     cost: 10, sell: 40,  mins: 0.75, h: 1.0, regrow: 0 },
+    { n: 'Frawli', e: '🍓', file: 'strawberry.glb', cost: 25, sell: 60,  mins: 3,    h: 0.9, regrow: 1.5 },  // multi-harvest: plant stays, fruit regrows
+    { n: 'Qara',   e: '🎃', file: 'pumpkin.glb',    cost: 60, sell: 320, mins: 8,    h: 1.1, regrow: 0 },
+  ];
+  let barn = JSON.parse(localStorage.pm_barn || '{"0":0,"1":0,"2":0}');
+  let seedInv = JSON.parse(localStorage.pm_seeds || '{"0":0,"1":0,"2":0}');
+  let helpers = JSON.parse(localStorage.pm_helpers || '{"dog":0,"pug":0,"worker":0}');
+  const HELPERS = [
+    { k: 'dog',    n: 'Kelb tal-Fenek', e: '🐕', cost: 500,  buff: 'All crops grow 25% faster' },
+    { k: 'pug',    n: 'Pug',            e: '🐶', cost: 1500, buff: 'Seeds cost 20% less' },
+    { k: 'worker', n: 'Farmer Pawlu',   e: '👨‍🌾', cost: 4000, buff: 'Harvests & replants for you' },
+  ];
+  const growBoost = () => helpers.dog ? 1.25 : 1;
+  const seedCost = ci => Math.ceil(CROPS[ci].cost * (helpers.pug ? 0.8 : 1));
+  function saveMeta(){ localStorage.pm_barn = JSON.stringify(barn); localStorage.pm_seeds = JSON.stringify(seedInv); localStorage.pm_helpers = JSON.stringify(helpers); }
+  const SOIL_COST = 25, WATER_COST = 5, TILE = 2, RANGE = 6;
+  let garden = JSON.parse(localStorage.pm_garden || '{}');
+  let tool = 'soil', seedSel = 0;
+  const gNodes = {};                    // key -> { soil, crop }
+  const cropTpl = [null, null, null];
+  const soilMat = new BABYLON.StandardMaterial('soil', sV);
+  soilMat.diffuseTexture = new BABYLON.Texture('assets/tex_soil.png', sV);
+  soilMat.specularColor = BABYLON.Color3.Black();
+  const soilWet = soilMat.clone('soilwet'); soilWet.diffuseColor = new BABYLON.Color3(0.55,0.5,0.45);
+  function mkSoil(x, z, wet){
+    const b = BABYLON.MeshBuilder.CreateBox('so', { width: TILE-0.16, height: 0.14, depth: TILE-0.16 }, sV);
+    b.position.set(x, 0.5, z); b.material = wet ? soilWet : soilMat; b.receiveShadows = true;
+    return b;
+  }
+  function mkCrop(ci, x, z){
+    if (!cropTpl[ci]) return null;
+    const c = cropTpl[ci].instantiateHierarchy(null);
+    c.setEnabled(true);
+    c.position.set(x, 0.56, z);
+    c._base = cropTpl[ci]._baseScale;
+    c.scaling.setAll(c._base * 0.25);
+    return c;
+  }
+  CROPS.forEach((cr, ci) => {
+    BABYLON.SceneLoader.ImportMesh('', 'assets/', cr.file, sV, (meshes) => {
+      const root = meshes[0];
+      let mn = new BABYLON.Vector3(1e9,1e9,1e9), mx = new BABYLON.Vector3(-1e9,-1e9,-1e9);
+      meshes.forEach(mm => { if(!mm.getBoundingInfo) return;
+        const bb = mm.getHierarchyBoundingVectors();
+        mn = BABYLON.Vector3.Minimize(mn, bb.min); mx = BABYLON.Vector3.Maximize(mx, bb.max); });
+      root._baseScale = cr.h / Math.max(0.01, mx.y - mn.y);
+      root.setEnabled(false);
+      cropTpl[ci] = root;
+      rebuildTile.pending && rebuildGarden();
+    });
+  });
+  function saveGarden(){ localStorage.pm_garden = JSON.stringify(garden); }
+  function keyOf(x, z){ return x + '_' + z; }
+  function rebuildGarden(){
+    rebuildTile.pending = cropTpl.some(t2 => !t2);
+    for (const k in garden){
+      const [x, z] = k.split('_').map(Number);
+      const st = garden[k];
+      if (!gNodes[k]) gNodes[k] = {};
+      if (!gNodes[k].soil) gNodes[k].soil = mkSoil(x, z, st.w);
+      if (st.k === 'crop' && !gNodes[k].crop && cropTpl[st.c]) gNodes[k].crop = mkCrop(st.c, x, z);
+    }
+  }
+  rebuildTile.pending = true;
+  function rebuildTile(){}
+  function gardenTap(px2, pz){
+    const x = Math.max(-RANGE, Math.min(RANGE, Math.round(px2 / TILE) * TILE));
+    const z = Math.max(-RANGE, Math.min(RANGE, Math.round(pz / TILE) * TILE));
+    const k = keyOf(x, z), st = garden[k];
+    if (tool === 'soil'){
+      if (st){ toast('Already tilled — pick an empty spot'); return; }
+      if (coins < SOIL_COST){ toast('Soil costs 🪙' + SOIL_COST + ' — play Crush to earn!'); return; }
+      coins -= SOIL_COST; garden[k] = { k: 'soil' };
+      gNodes[k] = { soil: mkSoil(x, z, false) };
+      sfx.click(); toast('⛏️ Soil ready — now plant a seed!');
+    } else if (tool === 'plant'){
+      if (!st){ toast('Till soil first with the ⛏️ tool'); return; }
+      if (st.k === 'crop'){ toast('Something already grows here'); return; }
+      const cr = CROPS[seedSel];
+      if (seedInv[seedSel] > 0){ seedInv[seedSel]--; }
+      else if (coins >= seedCost(seedSel)){ coins -= seedCost(seedSel); }
+      else { toast(cr.e + ' seed costs 🪙' + seedCost(seedSel) + ' — or buy packs in the 🏪 shop'); return; }
+      garden[k] = { k: 'crop', c: seedSel, t: Date.now(), w: 0 };
+      gNodes[k].crop = mkCrop(seedSel, x, z);
+      sfx.click(); toast(cr.e + ' ' + cr.n + ' planted — ready in ' + cr.mins + ' min');
+    } else if (tool === 'water'){
+      if (!st || st.k !== 'crop'){ toast('Nothing to water here'); return; }
+      if (st.w){ toast('Already watered 💧'); return; }
+      if (coins < WATER_COST){ toast('Water costs 🪙' + WATER_COST); return; }
+      coins -= WATER_COST; st.w = 1;
+      if (gNodes[k].soil) gNodes[k].soil.material = soilWet;
+      sfx.click(); toast('💧 Watered — grows twice as fast!');
+    } else if (tool === 'harvest'){
+      harvestTile(k);
+    } else if (tool === 'clear'){
+      if (!st){ return; }
+      if (gNodes[k]){ if (gNodes[k].crop) gNodes[k].crop.dispose(); if (gNodes[k].soil) gNodes[k].soil.dispose(); delete gNodes[k]; }
+      delete garden[k];
+      sfx.click(); toast('🧹 Cleared');
+    }
+    hud(); save(); saveGarden();
+  }
+  function harvestTile(k){
+    const st = garden[k];
+    if (!st || st.k !== 'crop'){ toast('Nothing to harvest here'); return false; }
+    const cr = CROPS[st.c];
+    const dur = cr.mins * 60000 / ((st.w ? 2 : 1) * growBoost());
+    if (Date.now() - st.t < dur){ toast('Still growing… ' + Math.ceil((dur - (Date.now() - st.t)) / 60000) + ' min left'); return false; }
+    barn[st.c] = (barn[st.c] || 0) + 1;
+    if (cr.regrow){
+      // multi-harvest: only the FRUIT is picked — plant stays and regrows
+      st.t = Date.now(); st.w = 0; st.mins = cr.regrow;
+      if (gNodes[k].soil) gNodes[k].soil.material = soilMat;
+      toast('🧺 ' + cr.e + ' picked → barn! Plant regrows in ' + cr.regrow + ' min');
+    } else {
+      if (gNodes[k].crop){ gNodes[k].crop.dispose(); gNodes[k].crop = null; }
+      if (gNodes[k].soil) gNodes[k].soil.material = soilMat;
+      garden[k] = { k: 'soil' };
+      toast('🧺 ' + cr.e + ' ' + cr.n + ' → barn! Sell it in the 🏪 shop');
+    }
+    sfx.coin(); hud(); save(); saveGarden(); saveMeta(); refreshShop();
+    return true;
+  }
+  // Farmer Pawlu: auto-harvests & replants every 12s once hired
+  setInterval(() => {
+    if (!helpers.worker) return;
+    for (const k in garden){
+      const st = garden[k];
+      if (st.k !== 'crop') continue;
+      const cr = CROPS[st.c];
+      const dur = (st.mins || cr.mins) * 60000 / ((st.w ? 2 : 1) * growBoost());
+      if (Date.now() - st.t >= dur){
+        const ci = st.c, wasRegrow = cr.regrow;
+        harvestTile(k);
+        if (!wasRegrow && garden[k] && garden[k].k === 'soil' && seedInv[ci] > 0){
+          seedInv[ci]--;
+          garden[k] = { k: 'crop', c: ci, t: Date.now(), w: 0 };
+          const [x, z] = k.split('_').map(Number);
+          gNodes[k].crop = mkCrop(ci, x, z);
+          saveGarden(); saveMeta(); refreshShop();
+        }
+        break;   // one action per tick — he's only human
+      }
+    }
+  }, 12000);
+  sV.onPointerObservable.add(pi3 => {
+    if (active !== 'g' || pi3.type !== BABYLON.PointerEventTypes.POINTERDOWN) return;
+    const hit = sV.pick(sV.pointerX, sV.pointerY, m2 => m2 === sV._grassTop || (m2.name === 'so'));
+    if (hit.hit && hit.pickedPoint) gardenTap(hit.pickedPoint.x, hit.pickedPoint.z);
+  });
+  rebuildGarden();
+  window._garden = { get tiles(){ return Object.keys(garden).length; }, get state(){ return garden; }, setTool(t2){ tool = t2; }, tap: gardenTap };
+  window._gardenSeed = (i2) => { seedSel = i2; };
+  function refreshShop(){ if (document.getElementById('shopView').style.display === 'block') window._shop.render(); }
+  window._shop = {
+    render(){
+      const v = document.getElementById('shopView');
+      let h = '<div style="font:800 13px system-ui;color:#ffe08a;margin-bottom:6px">SELL YOUR HARVEST</div>';
+      h += CROPS.map((cr, i2) =>
+        `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;color:#ffe9c9;font:600 13px system-ui">
+          <span style="flex:1">${cr.e} ${cr.n} × <b>${barn[i2] || 0}</b> <small style="color:#c9a05a">(🪙${cr.sell} each)</small></span>
+          <button onclick="_shop.sell(${i2})" ${!(barn[i2]) ? 'disabled style="opacity:.4"' : ''} class="tl on" style="padding:6px 12px">SELL 🪙${(barn[i2] || 0) * cr.sell}</button>
+        </div>`).join('');
+      h += '<div style="font:800 13px system-ui;color:#ffe08a;margin:10px 0 6px">BUY SEED PACKS <small style="color:#c9a05a">(5 seeds, 10% off)</small></div>';
+      h += CROPS.map((cr, i2) => {
+        const pack = Math.ceil(seedCost(i2) * 5 * 0.9);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;color:#ffe9c9;font:600 13px system-ui">
+          <span style="flex:1">${cr.e} ${cr.n} seeds × <b>${seedInv[i2] || 0}</b> in stock</span>
+          <button onclick="_shop.buy(${i2})" class="tl on" style="padding:6px 12px">5-PACK 🪙${pack}</button>
+        </div>`; }).join('');
+      h += '<div style="font:800 13px system-ui;color:#ffe08a;margin:10px 0 6px">HELPERS <small style="color:#c9a05a">(one-time hire, permanent buff)</small></div>';
+      h += HELPERS.map(hp =>
+        `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;color:#ffe9c9;font:600 13px system-ui">
+          <span style="flex:1">${hp.e} ${hp.n}<br><small style="color:#c9a05a">${hp.buff}</small></span>
+          ${helpers[hp.k] ? '<span style="color:#7fbf7f;font-weight:800">HIRED ✓</span>'
+            : `<button onclick="_shop.hire('${hp.k}')" class="tl on" style="padding:6px 12px">🪙${hp.cost}</button>`}
+        </div>`).join('');
+      v.innerHTML = h;
+    },
+    sell(i2){
+      const n2 = barn[i2] || 0;
+      if (!n2) return;
+      coins += n2 * CROPS[i2].sell; barn[i2] = 0;
+      sfx.coin(); toast('💰 Sold ' + n2 + ' × ' + CROPS[i2].e + '!');
+      hud(); save(); saveMeta(); this.render();
+    },
+    buy(i2){
+      const pack = Math.ceil(seedCost(i2) * 5 * 0.9);
+      if (coins < pack){ toast('Need 🪙' + pack); return; }
+      coins -= pack; seedInv[i2] = (seedInv[i2] || 0) + 5;
+      sfx.click(); toast('🌱 +5 ' + CROPS[i2].e + ' seeds');
+      hud(); save(); saveMeta(); this.render();
+    },
+    hire(k2){
+      const hp = HELPERS.find(x => x.k === k2);
+      if (helpers[k2] || coins < hp.cost){ if (coins < hp.cost) toast('Need 🪙' + hp.cost); return; }
+      coins -= hp.cost; helpers[k2] = 1;
+      // the helper appears on the island
+      if (k2 === 'dog') spawnHelper('dog_a.glb', 0.45, -3, 3, 'Walk');
+      if (k2 === 'pug') spawnHelper('dog_b.glb', 0.4, 3, 4, 'Idle');
+      if (k2 === 'worker') spawnHelper('man_walk.glb', 1.7, 0, 4, null);
+      sfx.jackpot(); toast(hp.e + ' ' + hp.n + ' hired! ' + hp.buff);
+      hud(); save(); saveMeta(); this.render();
+    }
+  };
+  function spawnHelper(file, sc, x, z, anim){
+    BABYLON.SceneLoader.ImportMesh('', 'assets/', file, sV, (meshes, p2, sk, ags) => {
+      const root = meshes[0];
+      if (file === 'man_walk.glb'){
+        let mn = new BABYLON.Vector3(1e9,1e9,1e9), mx = new BABYLON.Vector3(-1e9,-1e9,-1e9);
+        meshes.forEach(mm => { if(!mm.getBoundingInfo) return;
+          const bb = mm.getHierarchyBoundingVectors();
+          mn = BABYLON.Vector3.Minimize(mn, bb.min); mx = BABYLON.Vector3.Maximize(mx, bb.max); });
+        const f2 = sc / Math.max(0.01, mx.y - mn.y);
+        root.scaling.scaleInPlace(f2); root.position.set(x, 0.45 - mn.y * f2, z);
+      } else { root.scaling.setAll(sc); root.position.set(x, 0.55, z); }
+      root.rotationQuaternion = null;
+      root._pi = file.startsWith('dog');
+      ags.forEach(a => a.stop());
+      const pick = anim ? ags.find(a => new RegExp(anim, 'i').test(a.name)) : ags[0];
+      if (pick) pick.start(true);
+      helperNodes.push(root);
+    });
+  }
+  const helperNodes = [];
+  // wanderer motion for hired helpers
+  let helperT = helperNodes.map(() => null);
+  sV.onBeforeRenderObservable.add(() => {
+    const dt2 = engine.getDeltaTime()/1000;
+    helperNodes.forEach((n2, i2) => {
+      if (!helperT[i2]) helperT[i2] = new BABYLON.Vector3(-4 + Math.random()*8, n2.position.y, -3 + Math.random()*7);
+      const d2 = helperT[i2].subtract(n2.position); d2.y = 0;
+      if (d2.length() < 0.4){ helperT[i2] = new BABYLON.Vector3(-4 + Math.random()*8, n2.position.y, -3 + Math.random()*7); return; }
+      const dir2 = d2.normalize();
+      n2.position.x += dir2.x * dt2 * 1.2; n2.position.z += dir2.z * dt2 * 1.2;
+      n2.rotation.y = Math.atan2(dir2.x, dir2.z) + (n2._pi ? 0 : Math.PI);
+    });
+  });
+  // restore hired helpers on load
+  if (helpers.dog) spawnHelper('dog_a.glb', 0.45, -3, 3, 'Walk');
+  if (helpers.pug) spawnHelper('dog_b.glb', 0.4, 3, 4, 'Idle');
+  if (helpers.worker) spawnHelper('man_walk.glb', 1.7, 0, 4, null);
   let t = 0;
   sV.onBeforeRenderObservable.add(() => {
     const dt = engine.getDeltaTime()/1000; t += dt;
     if (luzzu){ luzzu.position.y = -3.3 + Math.sin(t*1.1)*0.07; luzzu.rotation.z = Math.sin(t*1.4)*0.05; }
-    const mv = (n, tgt, sp) => {
-      if (!n) return tgt;
-      const d = tgt.subtract(n.position); d.y = 0;
-      if (d.length() < 0.4) return new BABYLON.Vector3(-4+Math.random()*9, 0.55, -3+Math.random()*8);
-      const dir = d.normalize(); n.position.addInPlace(dir.scale(dt*sp));
-      n.rotation.y = Math.atan2(dir.x, dir.z) + (n === dogA ? 0 : Math.PI);
-      return tgt;
-    };
-    wt = mv(walker, wt, 1.1); dt2 = mv(dogA, dt2, 1.6);
+    // crop growth + ready-bounce
+    for (const k in garden){
+      const st = garden[k];
+      if (st.k !== 'crop') continue;
+      const nd = gNodes[k];
+      if (!nd || !nd.crop){ if (cropTpl[st.c]){ const [x,z]=k.split('_').map(Number); if(nd) nd.crop = mkCrop(st.c,x,z); } continue; }
+      const cr = CROPS[st.c];
+      const dur = (st.mins || cr.mins) * 60000 / ((st.w ? 2 : 1) * growBoost());
+      const pct = Math.min(1, (Date.now() - st.t) / dur);
+      const lo = st.mins ? 0.7 : 0.25;   // regrowing plants stay large, fruit phase 70→100%
+      const sc = nd.crop._base * (lo + (1 - lo) * pct);
+      if (pct >= 1){ nd.crop.scaling.setAll(sc * (1 + Math.sin(t * 3) * 0.05)); nd.crop.rotation.y += dt * 0.4; }
+      else nd.crop.scaling.setAll(sc);
+    }
+
     if (sV._clouds) sV._clouds.forEach((cl, i2) => {
       cl.position.x += dt * (0.25 + i2*0.07);
       if (cl.position.x > 34) cl.position.x = -34;
@@ -730,8 +977,8 @@ function go(k){
   active = k;
   backBtn.style.display = k === 'c' ? 'none' : 'block';
   spinBtn.style.display = k === 's' ? 'block' : 'none';
-  document.getElementById('buildFab').style.display = 'none';
-  document.getElementById('buildPanel').style.display = 'none';
+  document.getElementById('buildFab').style.display = k === 'g' ? 'block' : 'none';
+  if (k !== 'g') document.getElementById('buildPanel').style.display = 'none';
   document.getElementById('bets').style.display = k === 's' ? 'flex' : 'none';
   document.getElementById('lvlbar').style.display = 'none';   // original game has its own HUD
   document.getElementById('hud').style.display = k === 'c' ? 'none' : 'flex';
@@ -760,11 +1007,23 @@ addEventListener('message', e => {
 });
 document.getElementById('buildFab').addEventListener('click', () => {
   const p = document.getElementById('buildPanel');
-  const show = p.style.display !== 'block';
-  p.style.display = show ? 'block' : 'none';
-  if (show) bRefresh();
+  p.style.display = p.style.display !== 'block' ? 'block' : 'none';
   sfx.click();
 });
+document.querySelectorAll('.tl').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tl').forEach(x => x.classList.toggle('on', x === b));
+  const isShop = b.id === 'shopBtn';
+  document.getElementById('shopView').style.display = isShop ? 'block' : 'none';
+  if (!isShop) window._garden.setTool(b.dataset.t);
+  else window._shop.render();
+  document.getElementById('seedRow').style.display = b.dataset.t === 'plant' ? 'flex' : 'none';
+  sfx.click();
+}));
+document.querySelectorAll('.sd').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.sd').forEach(x => x.classList.toggle('on', x === b));
+  window._gardenSeed(+b.dataset.s);
+  sfx.click();
+}));
 backBtn.addEventListener('click', () => go('c'));
 go(new URLSearchParams(location.search).get('tab') || 'c'); hud();
 
