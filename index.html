@@ -70,9 +70,9 @@
   </div>
   <div id="shopView" style="display:none;margin-top:10px"></div>
   <div id="seedRow" style="display:none;gap:8px;justify-content:center;margin-top:10px">
-    <button class="sd on" data-s="0">🍅 Tadam 🪙10<br><small>45 sec · +40</small></button>
-    <button class="sd" data-s="1">🍓 Frawli 🪙25<br><small>3 min · +120</small></button>
-    <button class="sd" data-s="2">🎃 Qara 🪙60<br><small>8 min · +320</small></button>
+    <button class="sd on" data-s="0">🍅 Tadam 🪙10<br><small>45s · regrows ♾ · ×35</small></button>
+    <button class="sd" data-s="1">🍓 Frawli 🪙25<br><small>3min · regrows ♾ · ×55</small></button>
+    <button class="sd" data-s="2">🎃 Qara 🪙60<br><small>8min · one big ×320</small></button>
   </div>
 </div>
 <style>
@@ -323,9 +323,11 @@ const sV = new BABYLON.Scene(engine);
 
   // ---------- GARDEN FARM ENGINE ----------
   const CROPS = [
-    { n: 'Tadam',  e: '🍅', file: 'tomato.glb',     cost: 10, sell: 40,  mins: 0.75, h: 1.0, regrow: 0 },
-    { n: 'Frawli', e: '🍓', file: 'strawberry.glb', cost: 25, sell: 60,  mins: 3,    h: 0.9, regrow: 1.5 },  // multi-harvest: plant stays, fruit regrows
-    { n: 'Qara',   e: '🎃', file: 'pumpkin.glb',    cost: 60, sell: 320, mins: 8,    h: 1.1, regrow: 0 },
+    // multi-harvest: only the FRUIT is picked; the plant regrows fruit `picks` times, then it's spent
+    // realistic: regrowing plants live forever — buy the seed ONCE, the plant keeps fruiting (low sell values balance it)
+    { n: 'Tadam',  e: '🍅', file: 'tomato.glb',     cost: 10, sell: 35,  mins: 0.75, h: 1.0, regrow: 0.6, picks: Infinity },
+    { n: 'Frawli', e: '🍓', file: 'strawberry.glb', cost: 25, sell: 55,  mins: 3,    h: 0.9, regrow: 1.5, picks: Infinity },
+    { n: 'Qara',   e: '🎃', file: 'pumpkin.glb',    cost: 60, sell: 320, mins: 8,    h: 1.1, regrow: 0,   picks: 1 },
   ];
   let barn = JSON.parse(localStorage.pm_barn || '{"0":0,"1":0,"2":0}');
   let seedInv = JSON.parse(localStorage.pm_seeds || '{"0":0,"1":0,"2":0}');
@@ -499,11 +501,18 @@ const sV = new BABYLON.Scene(engine);
     if (Date.now() - st.t < dur){ toast('Still growing… ' + Math.ceil((dur - (Date.now() - st.t)) / 60000) + ' min left'); return false; }
     barn[st.c] = (barn[st.c] || 0) + 1;
     dropFruit(gNodes[k]);   // the fruit is what you pick
-    if (cr.regrow){
-      // multi-harvest: plant stays, new fruit grows back
+    st.p = (st.p || 0) + 1;
+    if (cr.regrow && st.p < cr.picks){
+      // multi-harvest: plant stays, new fruit grows back — until the plant is spent
       st.t = Date.now(); st.w = 0; st.mins = cr.regrow;
       if (gNodes[k].soil) gNodes[k].soil.material = soilMat;
-      toast('🧺 ' + cr.e + ' picked → barn! New fruit in ' + cr.regrow + ' min');
+      toast('🧺 ' + cr.e + ' picked (harvest #' + st.p + ') → barn! New fruit in ' + cr.regrow + ' min');
+    } else if (st.p >= cr.picks && cr.picks > 1){
+      if (gNodes[k].crop){ gNodes[k].crop.dispose(); gNodes[k].crop = null; }
+      dropIndicators(gNodes[k]);
+      if (gNodes[k].soil) gNodes[k].soil.material = soilMat;
+      garden[k] = { k: 'soil' };
+      toast('🧺 Last ' + cr.e + ' picked (' + cr.picks + '/' + cr.picks + ') — the plant is spent, replant!');
     } else {
       if (gNodes[k].crop){ gNodes[k].crop.dispose(); gNodes[k].crop = null; }
       dropIndicators(gNodes[k]);
